@@ -10,8 +10,14 @@ use MahmoudMhamed\DbLens\Services\SchemaInspector;
 
 class ExportController extends Controller
 {
+    protected function assertEnabled(): void
+    {
+        abort_unless(config('dblens.allow_export', true), 403, 'Export is disabled.');
+    }
+
     public function table(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, Exporter $exporter)
     {
+        $this->assertEnabled();
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
 
@@ -24,12 +30,14 @@ class ExportController extends Controller
 
     public function database(string $connection, ConnectionManager $cm, Exporter $exporter)
     {
+        $this->assertEnabled();
         $cm->assertAllowed($connection);
         return $exporter->databaseResponse($connection);
     }
 
     public function custom(string $connection, Request $request, ConnectionManager $cm, Exporter $exporter)
     {
+        $this->assertEnabled();
         $cm->assertAllowed($connection);
 
         $decode = function ($v) {

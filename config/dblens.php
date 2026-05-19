@@ -27,6 +27,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Per-action permissions
+    |--------------------------------------------------------------------------
+    |
+    | Even when read_only is false, the following flags can disable specific
+    | destructive / heavy actions. Each can be toggled independently via env.
+    |
+    | allow_truncate   — TRUNCATE TABLE
+    | allow_drop_table — DROP TABLE
+    | allow_export     — download SQL / CSV / JSON dumps
+    | allow_import     — upload SQL / CSV files
+    |
+    */
+    'allow_truncate' => env('DBLENS_ALLOW_TRUNCATE', true),
+    'allow_drop_table' => env('DBLENS_ALLOW_DROP_TABLE', true),
+    'allow_export' => env('DBLENS_ALLOW_EXPORT', true),
+    'allow_import' => env('DBLENS_ALLOW_IMPORT', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Web Viewer
     |--------------------------------------------------------------------------
     |

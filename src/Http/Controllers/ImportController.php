@@ -15,6 +15,7 @@ class ImportController extends Controller
         if (config('dblens.read_only', false)) {
             abort(403, 'DbLens is in read-only mode.');
         }
+        abort_unless(config('dblens.allow_import', true), 403, 'Import is disabled.');
     }
 
     public function form(ConnectionManager $cm, SchemaInspector $schema, string $connection, ?string $table = null)

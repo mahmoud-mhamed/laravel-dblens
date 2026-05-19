@@ -17,20 +17,24 @@
             </form>
         </details>
 
-        <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
-              onsubmit="return confirm('TRUNCATE {{ $table }}? All rows will be removed.');">
-            @csrf
-            <input type="hidden" name="confirm" value="1">
-            <button class="px-3 py-1 bg-amber-500 text-white rounded text-xs">Truncate</button>
-        </form>
+        @if (config('dblens.allow_truncate', true))
+            <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
+                  onsubmit="return confirm('TRUNCATE {{ $table }}? All rows will be removed.');">
+                @csrf
+                <input type="hidden" name="confirm" value="1">
+                <button class="px-3 py-1 bg-amber-500 text-white rounded text-xs">Truncate</button>
+            </form>
+        @endif
 
-        <form method="POST" action="{{ route('dblens.table.drop', ['connection' => $connection, 'table' => $table]) }}"
-              onsubmit="return confirm('DROP TABLE {{ $table }}? This cannot be undone.');">
-            @csrf
-            @method('DELETE')
-            <input type="hidden" name="confirm" value="1">
-            <button class="px-3 py-1 bg-red-600 text-white rounded text-xs">Drop table</button>
-        </form>
+        @if (config('dblens.allow_drop_table', true))
+            <form method="POST" action="{{ route('dblens.table.drop', ['connection' => $connection, 'table' => $table]) }}"
+                  onsubmit="return confirm('DROP TABLE {{ $table }}? This cannot be undone.');">
+                @csrf
+                @method('DELETE')
+                <input type="hidden" name="confirm" value="1">
+                <button class="px-3 py-1 bg-red-600 text-white rounded text-xs">Drop table</button>
+            </form>
+        @endif
     </div>
 @endunless
 

@@ -79,13 +79,17 @@
                         <span x-text="matchCount()"></span> / {{ count($tables) }} matched
                     </span>
                 </span>
-                <a href="{{ route('dblens.database.export', ['connection' => $connection]) }}"
-                   class="px-3 py-1.5 bg-slate-700 text-white rounded text-sm hover:bg-slate-800">⬇ Export DB</a>
-                <button type="button" @click="open = true"
-                        class="px-3 py-1.5 bg-slate-700 text-white rounded text-sm hover:bg-slate-800">⬇ Export…</button>
+                @if (config('dblens.allow_export', true))
+                    <a href="{{ route('dblens.database.export', ['connection' => $connection]) }}"
+                       class="px-3 py-1.5 bg-slate-700 text-white rounded text-sm hover:bg-slate-800">⬇ Export DB</a>
+                    <button type="button" @click="open = true"
+                            class="px-3 py-1.5 bg-slate-700 text-white rounded text-sm hover:bg-slate-800">⬇ Export Advanced</button>
+                @endif
                 @unless (config('dblens.read_only'))
-                    <a href="{{ route('dblens.database.import.form', ['connection' => $connection]) }}"
-                       class="px-3 py-1.5 bg-slate-200 text-slate-700 rounded text-sm hover:bg-slate-300">⬆ Import</a>
+                    @if (config('dblens.allow_import', true))
+                        <a href="{{ route('dblens.database.import.form', ['connection' => $connection]) }}"
+                           class="px-3 py-1.5 bg-slate-200 text-slate-700 rounded text-sm hover:bg-slate-300">⬆ Import</a>
+                    @endif
                     <a href="{{ route('dblens.table.create.form', ['connection' => $connection]) }}"
                        class="px-3 py-1.5 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">+ Create table</a>
                 @endunless
@@ -126,10 +130,23 @@
                         </td>
                         <td class="px-4 py-2 text-slate-500">{{ $t['engine'] ?? '-' }}</td>
                         <td class="px-4 py-2 text-slate-500 text-xs">{{ $t['collation'] ?? '-' }}</td>
-                        <td class="px-4 py-2 text-right text-xs">
+                        <td class="px-4 py-2 text-right text-xs whitespace-nowrap">
                             <a href="{{ route('dblens.table.structure', ['connection' => $connection, 'table' => $t['name']]) }}" class="text-slate-500 hover:text-sky-600">structure</a>
                             <span class="text-slate-300 mx-1">·</span>
                             <a href="{{ route('dblens.table.info', ['connection' => $connection, 'table' => $t['name']]) }}" class="text-slate-500 hover:text-sky-600">info</a>
+                            @if (! config('dblens.read_only') && config('dblens.allow_truncate', true))
+                                <span class="text-slate-300 mx-1">·</span>
+                                <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $t['name']]) }}"
+                                      class="inline"
+                                      data-confirm-title="Truncate table"
+                                      data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $t['name'] }}]. This cannot be undone."
+                                      data-confirm-text="Truncate"
+                                      data-confirm-type="{{ $t['name'] }}">
+                                    @csrf
+                                    <input type="hidden" name="confirm" value="1">
+                                    <button type="submit" class="text-amber-600 hover:underline" title="Truncate {{ $t['name'] }}">truncate</button>
+                                </form>
+                            @endif
                         </td>
                     </tr>
                 @empty

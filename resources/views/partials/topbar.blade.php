@@ -11,19 +11,21 @@
                    class="px-2 py-1 rounded {{ request()->routeIs('dblens.table.structure') ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100' }}">Structure</a>
                 <a href="{{ route('dblens.table.info', ['connection' => $connection, 'table' => $table]) }}"
                    class="px-2 py-1 rounded {{ request()->routeIs('dblens.table.info') ? 'bg-sky-100 text-sky-700' : 'text-slate-600 hover:bg-slate-100' }}">Info</a>
-                <span class="text-slate-300 mx-1">|</span>
-                <span x-data="{ open: false }" class="relative inline-block">
-                    <button @click="open = !open" type="button" class="px-2 py-1 rounded text-slate-600 hover:bg-slate-100">⬇ Export</button>
-                    <div x-show="open" @click.outside="open = false" x-cloak class="absolute right-0 mt-1 w-32 bg-white border border-slate-200 rounded shadow-lg z-10 text-left">
-                        <a href="{{ route('dblens.table.export', ['connection' => $connection, 'table' => $table, 'format' => 'sql']) }}" class="block px-3 py-1.5 hover:bg-slate-50">SQL</a>
-                        <a href="{{ route('dblens.table.export', ['connection' => $connection, 'table' => $table, 'format' => 'csv']) }}" class="block px-3 py-1.5 hover:bg-slate-50">CSV</a>
-                        <a href="{{ route('dblens.table.export', ['connection' => $connection, 'table' => $table, 'format' => 'json']) }}" class="block px-3 py-1.5 hover:bg-slate-50">JSON</a>
-                    </div>
-                </span>
-                @unless (config('dblens.read_only'))
+                @if (config('dblens.allow_export', true))
+                    <span class="text-slate-300 mx-1">|</span>
+                    <span x-data="{ open: false }" class="relative inline-block">
+                        <button @click="open = !open" type="button" class="px-2 py-1 rounded text-slate-600 hover:bg-slate-100">⬇ Export</button>
+                        <div x-show="open" @click.outside="open = false" x-cloak class="absolute right-0 mt-1 w-32 bg-white border border-slate-200 rounded shadow-lg z-10 text-left">
+                            <a href="{{ route('dblens.table.export', ['connection' => $connection, 'table' => $table, 'format' => 'sql']) }}" class="block px-3 py-1.5 hover:bg-slate-50">SQL</a>
+                            <a href="{{ route('dblens.table.export', ['connection' => $connection, 'table' => $table, 'format' => 'csv']) }}" class="block px-3 py-1.5 hover:bg-slate-50">CSV</a>
+                            <a href="{{ route('dblens.table.export', ['connection' => $connection, 'table' => $table, 'format' => 'json']) }}" class="block px-3 py-1.5 hover:bg-slate-50">JSON</a>
+                        </div>
+                    </span>
+                @endif
+                @if (! config('dblens.read_only') && config('dblens.allow_import', true))
                     <a href="{{ route('dblens.table.import.form', ['connection' => $connection, 'table' => $table]) }}"
                        class="px-2 py-1 rounded text-slate-600 hover:bg-slate-100">⬆ Import</a>
-                @endunless
+                @endif
             </span>
         @endisset
     </div>

@@ -226,7 +226,9 @@ class RowController extends Controller
 
     public function updateCell(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, RowEditor $editor)
     {
-        $this->assertWritable();
+        if (config('dblens.read_only', false)) {
+            return response()->json(['message' => 'DbLens is in read-only mode.'], 403);
+        }
         $cm->assertAllowed($connection);
         if (! $schema->tableExists($connection, $table)) {
             return response()->json(['message' => 'Table not found.'], 404);

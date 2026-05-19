@@ -96,6 +96,18 @@
                 @unless ($readOnly)
                     <a href="{{ route('dblens.row.create', ['connection' => $connection, 'table' => $table]) }}"
                        class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">+ Insert</a>
+                    @if (config('dblens.allow_truncate', true))
+                        <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
+                              class="inline"
+                              data-confirm-title="Truncate table"
+                              data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $table }}]. This cannot be undone."
+                              data-confirm-text="Truncate"
+                              data-confirm-type="{{ $table }}">
+                            @csrf
+                            <input type="hidden" name="confirm" value="1">
+                            <button type="submit" class="px-3 py-2 bg-amber-500 text-white rounded text-sm hover:bg-amber-600" title="Remove ALL rows (keeps the table structure)">⌫ Truncate</button>
+                        </form>
+                    @endif
                 @endunless
             </div>
 
@@ -128,7 +140,15 @@
     {{-- ─── Bulk form / table ───────────────────────────────────── --}}
     <form method="POST" action="{{ route('dblens.row.bulk-destroy', ['connection' => $connection, 'table' => $table]) }}"
           x-data="{ selected: [] }" id="bulk-form"
-          onsubmit="return confirm('Delete ' + this.querySelectorAll('input[name=\'keys[]\']:checked').length + ' row(s)? This cannot be undone.');">
+          @submit.prevent="
+              if ($el.dataset.confirmed === '1') { $el.submit(); return; }
+              $dispatch('open-confirm', {
+                  title: 'Delete selected rows',
+                  message: `Delete ${selected.length} row(s) from [{{ $table }}]? This cannot be undone.`,
+                  confirmText: 'Delete',
+                  onConfirm: () => { $el.dataset.confirmed = '1'; $el.submit(); }
+              });
+          ">
         @csrf
         <input type="hidden" name="confirm" value="1">
 

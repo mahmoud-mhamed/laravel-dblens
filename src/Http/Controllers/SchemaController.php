@@ -164,6 +164,7 @@ class SchemaController extends Controller
     public function truncate(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();
+        abort_unless(config('dblens.allow_truncate', true), 403, 'TRUNCATE is disabled.');
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
         $this->confirmed($request);
@@ -176,6 +177,7 @@ class SchemaController extends Controller
     public function dropTable(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();
+        abort_unless(config('dblens.allow_drop_table', true), 403, 'DROP TABLE is disabled.');
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
         $this->confirmed($request);

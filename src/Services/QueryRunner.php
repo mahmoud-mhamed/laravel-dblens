@@ -69,6 +69,8 @@ class QueryRunner
 
         foreach ($filters as $f) {
             if (! is_array($f)) continue;
+            // Skip filters that are explicitly disabled (toggle off)
+            if (array_key_exists('enabled', $f) && in_array($f['enabled'], ['0', 0, false, 'false'], true)) continue;
             $col = $f['column'] ?? null;
             $op = strtoupper((string) ($f['op'] ?? '='));
             $val = $f['value'] ?? null;

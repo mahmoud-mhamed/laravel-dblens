@@ -68,15 +68,17 @@ Route::post('/{connection}/t/{table}/bulk-delete', [RowController::class, 'bulkD
 Route::patch('/{connection}/t/{table}/cell', [RowController::class, 'updateCell'])->name('row.cell.update');
 Route::get('/{connection}/t/{table}/fk-options', [RowController::class, 'fkOptions'])->name('row.fk.options');
 
-Route::get('/{connection}/t/{table}/r/{rowKey}', [RowController::class, 'show'])
-    ->where('rowKey', '.*')
-    ->name('row.show');
+// IMPORTANT: register /edit FIRST so the greedy {rowKey} on row.show
+// doesn't swallow the trailing "/edit" segment.
 Route::get('/{connection}/t/{table}/r/{rowKey}/edit', [RowController::class, 'edit'])
-    ->where('rowKey', '.*')
+    ->where('rowKey', '[^/]+')
     ->name('row.edit');
 Route::put('/{connection}/t/{table}/r/{rowKey}', [RowController::class, 'update'])
-    ->where('rowKey', '.*')
+    ->where('rowKey', '[^/]+')
     ->name('row.update');
 Route::delete('/{connection}/t/{table}/r/{rowKey}', [RowController::class, 'destroy'])
-    ->where('rowKey', '.*')
+    ->where('rowKey', '[^/]+')
     ->name('row.destroy');
+Route::get('/{connection}/t/{table}/r/{rowKey}', [RowController::class, 'show'])
+    ->where('rowKey', '[^/]+')
+    ->name('row.show');

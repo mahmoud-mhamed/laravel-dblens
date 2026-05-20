@@ -26,6 +26,7 @@
                 'column' => $f['column'],
                 'op' => $f['op'] ?? '=',
                 'value' => $f['value'] ?? '',
+                'enabled' => ! array_key_exists('enabled', $f) || ! in_array($f['enabled'], ['0', 0, false, 'false'], true),
             ];
         }
     }
@@ -39,107 +40,156 @@
         filters: {{ json_encode($cleanFilters) }},
         showFilters: {{ $hasFilters ? 'true' : 'false' }},
         ops: {{ json_encode($ops) }}
-     })" x-init="init()">
+     })" x-init="init()"
+     @submit="navigating = true"
+     @click="if ($event.target.closest('a[href]') && !$event.target.closest('a[href]').href.startsWith('javascript:')) navigating = true">
+
+    {{-- ─── Navigation overlay (page reload / filter apply / pagination) ─── --}}
+    <div x-show="navigating" x-cloak class="fixed inset-0 bg-slate-900/30 backdrop-blur-[1px] z-[90] flex items-center justify-center pointer-events-none">
+        <div class="bg-white shadow-2xl rounded-lg px-5 py-3 flex items-center gap-3 border border-slate-200">
+            <svg class="animate-spin h-5 w-5 text-sky-600" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" stroke-width="4"></circle>
+                <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+            </svg>
+            <span class="text-sm text-slate-700">Loading…</span>
+        </div>
+    </div>
+
+    {{-- ─── Initial render skeleton — shown until Alpine has applied column visibility ─── --}}
+    <div x-show="!ready" class="bg-white rounded shadow-sm border border-slate-200 p-8 flex flex-col items-center justify-center text-slate-400">
+        <svg class="animate-spin h-6 w-6 text-slate-400 mb-2" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" stroke-width="4"></circle>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+        </svg>
+        <span class="text-xs">Preparing table…</span>
+    </div>
+
+    <div x-show="ready" x-cloak class="flex flex-col" style="min-height: calc(100vh - 6rem); max-height: calc(100vh - 6rem);">
 
     {{-- ─── Filters bar ─────────────────────────────────────────── --}}
     <div class="bg-white rounded shadow-sm border border-slate-200 mb-3 p-3">
-        <form method="GET">
-            <div class="flex flex-wrap gap-2 items-center">
-                <input type="text" name="search" value="{{ $search }}" placeholder="🔍 Search in this table…"
-                       class="flex-1 min-w-[200px] px-3 py-2 border border-slate-300 rounded text-sm">
-                <button type="button" @click="showFilters = !showFilters"
-                        class="px-3 py-2 border border-slate-300 rounded text-sm hover:bg-slate-50"
-                        :class="filters.length ? 'bg-sky-50 border-sky-300 text-sky-700' : ''">
-                    ⚙ Filters <span x-show="filters.length" x-text="`(${filters.length})`" class="ml-1"></span>
-                </button>
+        {{-- Empty form lives alongside the inputs; we associate them via the
+             `form="dblensFilterForm"` HTML attribute. This lets the Truncate
+             form (which is also a <form>) sit next to ours without nesting. --}}
+        <form id="dblensFilterForm" method="GET"></form>
 
-                {{-- Column visibility --}}
-                <div class="relative" @click.outside="showColsPanel = false">
-                    <button type="button" @click="showColsPanel = !showColsPanel"
-                            class="px-3 py-2 border border-slate-300 rounded text-sm hover:bg-slate-50"
-                            :class="visibleCount() < columns.length ? 'bg-amber-50 border-amber-300 text-amber-700' : ''">
-                        👁 Columns (<span x-text="visibleCount()"></span>/{{ count($columnNames) }})
-                    </button>
-                    <div x-show="showColsPanel" x-cloak
-                         class="absolute right-0 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-xl z-20 max-h-96 flex flex-col">
-                        <div class="px-3 py-2 border-b bg-slate-50 flex items-center justify-between">
-                            <span class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Visible columns</span>
-                            <div class="text-xs flex gap-2">
-                                <button type="button" @click="selectAllVisible(); persistCols()" class="text-sky-600 hover:underline" title="Select all matching the filter">All</button>
-                                <button type="button" @click="clearAllVisible(); persistCols()" class="text-slate-500 hover:underline" title="Clear all matching the filter">None</button>
-                            </div>
+        <div class="flex flex-wrap gap-2 items-center">
+            <input form="dblensFilterForm" type="text" name="search" value="{{ $search }}" placeholder="🔍 Search in this table…"
+                   class="flex-1 min-w-[200px] px-3 py-2 border border-slate-300 rounded text-sm">
+            <button type="button" @click="showFilters = !showFilters"
+                    class="px-3 py-2 border border-slate-300 rounded text-sm hover:bg-slate-50"
+                    :class="filters.length ? 'bg-sky-50 border-sky-300 text-sky-700' : ''">
+                ⚙ Filters <span x-show="filters.length" x-text="`(${filters.length})`" class="ml-1"></span>
+            </button>
+
+            {{-- Column visibility --}}
+            <div class="relative" @click.outside="showColsPanel = false">
+                <button type="button" @click="showColsPanel = !showColsPanel"
+                        class="px-3 py-2 border border-slate-300 rounded text-sm hover:bg-slate-50"
+                        :class="visibleCount() < columns.length ? 'bg-amber-50 border-amber-300 text-amber-700' : ''">
+                    👁 Columns (<span x-text="visibleCount()"></span>/{{ count($columnNames) }})
+                </button>
+                <div x-show="showColsPanel" x-cloak
+                     class="absolute right-0 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-xl z-20 max-h-96 flex flex-col">
+                    <div class="px-3 py-2 border-b bg-slate-50 flex items-center justify-between">
+                        <span class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Visible columns</span>
+                        <div class="text-xs flex gap-2">
+                            <button type="button" @click="selectAllVisible(); persistCols()" class="text-sky-600 hover:underline" title="Select all matching the filter">All</button>
+                            <button type="button" @click="clearAllVisible(); persistCols()" class="text-slate-500 hover:underline" title="Clear all matching the filter">None</button>
                         </div>
-                        <div class="px-2 py-2 border-b">
-                            <input type="text" x-model="colSearch" placeholder="🔍 Search columns…"
-                                   class="w-full px-2 py-1 border border-slate-300 rounded text-sm">
-                        </div>
-                        <div class="p-1 overflow-y-auto flex-1 scroll-thin">
-                            <template x-for="c in filteredColumns()" :key="c">
-                                <label class="flex items-center gap-2 px-2 py-1 hover:bg-slate-50 rounded cursor-pointer text-sm">
-                                    <input type="checkbox" :value="c" x-model="visibleCols" @change="persistCols()">
-                                    <span class="mono truncate" x-text="c"></span>
-                                </label>
-                            </template>
-                            <div x-show="filteredColumns().length === 0" class="px-2 py-3 text-center text-xs text-slate-400">No columns match.</div>
-                        </div>
+                    </div>
+                    <div class="px-2 py-2 border-b">
+                        <input type="text" x-model="colSearch" placeholder="🔍 Search columns…"
+                               class="w-full px-2 py-1 border border-slate-300 rounded text-sm">
+                    </div>
+                    <div class="p-1 overflow-y-auto flex-1 scroll-thin">
+                        <template x-for="c in filteredColumns()" :key="c">
+                            <label class="flex items-center gap-2 px-2 py-1 hover:bg-slate-50 rounded cursor-pointer text-sm">
+                                <input type="checkbox" :value="c" x-model="visibleCols" @change="persistCols()">
+                                <span class="mono truncate" x-text="c"></span>
+                            </label>
+                        </template>
+                        <div x-show="filteredColumns().length === 0" class="px-2 py-3 text-center text-xs text-slate-400">No columns match.</div>
                     </div>
                 </div>
+            </div>
 
-                <input type="hidden" name="per_page" value="{{ (int) request('per_page', config('dblens.browse.per_page')) }}">
-                <input type="hidden" name="order_by" value="{{ $order_by }}">
-                <input type="hidden" name="order_dir" value="{{ $order_dir }}">
-                <button class="px-3 py-2 bg-sky-600 text-white rounded text-sm hover:bg-sky-700">Apply</button>
-                @if ($search !== '' || $hasFilters)
-                    <a href="{{ route('dblens.table.browse', ['connection' => $connection, 'table' => $table]) }}" class="text-xs text-slate-500 hover:underline">Clear</a>
+            <input form="dblensFilterForm" type="hidden" name="per_page" value="{{ (int) request('per_page', config('dblens.browse.per_page')) }}">
+            <input form="dblensFilterForm" type="hidden" name="order_by" value="{{ $order_by }}">
+            <input form="dblensFilterForm" type="hidden" name="order_dir" value="{{ $order_dir }}">
+            <button form="dblensFilterForm" type="submit" class="px-3 py-2 bg-sky-600 text-white rounded text-sm hover:bg-sky-700">Apply</button>
+            @if ($search !== '' || $hasFilters)
+                <a href="{{ route('dblens.table.browse', ['connection' => $connection, 'table' => $table]) }}" class="text-xs text-slate-500 hover:underline">Clear</a>
+            @endif
+            <span class="text-xs text-slate-500 ml-auto">{{ number_format($total) }} row(s)</span>
+            @unless ($readOnly)
+                <a href="{{ route('dblens.row.create', ['connection' => $connection, 'table' => $table]) }}"
+                   class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">+ Insert</a>
+                @if (config('dblens.allow_truncate', true))
+                    <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
+                          class="inline"
+                          data-confirm-title="Truncate table"
+                          data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $table }}]. This cannot be undone."
+                          data-confirm-text="Truncate"
+                          data-confirm-type="{{ $table }}">
+                        @csrf
+                        <input type="hidden" name="confirm" value="1">
+                        <button type="submit" class="px-3 py-2 bg-amber-500 text-white rounded text-sm hover:bg-amber-600" title="Remove ALL rows (keeps the table structure)">⌫ Truncate</button>
+                    </form>
                 @endif
-                <span class="text-xs text-slate-500 ml-auto">{{ number_format($total) }} row(s)</span>
-                @unless ($readOnly)
-                    <a href="{{ route('dblens.row.create', ['connection' => $connection, 'table' => $table]) }}"
-                       class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">+ Insert</a>
-                    @if (config('dblens.allow_truncate', true))
-                        <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
-                              class="inline"
-                              data-confirm-title="Truncate table"
-                              data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $table }}]. This cannot be undone."
-                              data-confirm-text="Truncate"
-                              data-confirm-type="{{ $table }}">
-                            @csrf
-                            <input type="hidden" name="confirm" value="1">
-                            <button type="submit" class="px-3 py-2 bg-amber-500 text-white rounded text-sm hover:bg-amber-600" title="Remove ALL rows (keeps the table structure)">⌫ Truncate</button>
-                        </form>
-                    @endif
-                @endunless
-            </div>
+            @endunless
+        </div>
 
-            <div x-show="showFilters" x-cloak class="mt-3 border-t pt-3 space-y-2">
-                <template x-for="(f, i) in filters" :key="i">
-                    <div class="flex flex-wrap gap-2 items-center">
-                        <select :name="`filters[${i}][column]`" x-model="f.column" class="px-2 py-1 border border-slate-300 rounded text-sm mono w-44">
-                            @foreach ($columns as $c)
-                                <option value="{{ $c['name'] }}">{{ $c['name'] }}</option>
-                            @endforeach
-                        </select>
-                        <select :name="`filters[${i}][op]`" x-model="f.op" class="px-2 py-1 border border-slate-300 rounded text-sm mono w-32">
-                            <template x-for="op in ops" :key="op">
-                                <option :value="op" x-text="op"></option>
-                            </template>
-                        </select>
-                        <input :name="`filters[${i}][value]`" x-model="f.value" type="text"
-                               :disabled="['IS NULL','IS NOT NULL'].includes(f.op)"
-                               :placeholder="['IS NULL','IS NOT NULL'].includes(f.op) ? '— no value —' : 'value'"
-                               class="flex-1 min-w-[160px] px-2 py-1 border border-slate-300 rounded text-sm mono disabled:bg-slate-100 disabled:text-slate-400">
-                        <button type="button" @click="removeFilter(i)" class="text-red-500 hover:text-red-700 px-2" title="Remove">✕</button>
-                    </div>
-                </template>
+        <div x-show="showFilters" x-cloak class="mt-3 border-t pt-3 space-y-2">
+            <template x-for="(f, i) in filters" :key="i">
+                <div class="flex flex-wrap gap-2 items-center" :class="f.enabled ? '' : 'opacity-50'">
+                    {{-- On/Off toggle --}}
+                    <label class="inline-flex items-center cursor-pointer shrink-0" :title="f.enabled ? 'Filter is ON — click to disable' : 'Filter is OFF — click to enable'">
+                        <input type="checkbox" class="sr-only" x-model="f.enabled">
+                        <span class="relative w-9 h-5 rounded-full transition-colors"
+                              :class="f.enabled ? 'bg-emerald-500' : 'bg-slate-300'">
+                            <span class="absolute top-0.5 bg-white w-4 h-4 rounded-full transition-transform shadow"
+                                  :class="f.enabled ? 'translate-x-[1.125rem]' : 'translate-x-0.5'"></span>
+                        </span>
+                    </label>
+                    <input form="dblensFilterForm" type="hidden" :name="`filters[${i}][enabled]`" :value="f.enabled ? '1' : '0'">
+
+                    <select form="dblensFilterForm" :name="`filters[${i}][column]`" x-model="f.column" class="px-2 py-1 border border-slate-300 rounded text-sm mono w-44">
+                        @foreach ($columns as $c)
+                            <option value="{{ $c['name'] }}">{{ $c['name'] }}</option>
+                        @endforeach
+                    </select>
+                    <select form="dblensFilterForm" :name="`filters[${i}][op]`" x-model="f.op" class="px-2 py-1 border border-slate-300 rounded text-sm mono w-32">
+                        <template x-for="op in ops" :key="op">
+                            <option :value="op" x-text="op"></option>
+                        </template>
+                    </select>
+                    <input form="dblensFilterForm" :name="`filters[${i}][value]`" x-model="f.value" type="text"
+                           :disabled="['IS NULL','IS NOT NULL'].includes(f.op)"
+                           :placeholder="['IS NULL','IS NOT NULL'].includes(f.op) ? '— no value —' : 'value'"
+                           class="flex-1 min-w-[160px] px-2 py-1 border border-slate-300 rounded text-sm mono disabled:bg-slate-100 disabled:text-slate-400">
+                    <button type="button" @click="removeFilter(i)" class="text-red-500 hover:text-red-700 px-2" title="Remove">✕</button>
+                </div>
+            </template>
+            <div class="flex flex-wrap items-center gap-2">
                 <button type="button" @click="addFilter()" class="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-sm rounded text-slate-700">+ Add filter</button>
-                <p class="text-xs text-slate-500">All filters are combined with <span class="mono">AND</span>. Use <span class="mono">LIKE</span> with <span class="mono">%</span> wildcards for substring match.</p>
+                <button type="button" x-show="filters.length > 0" @click="clearAllFilters()"
+                        class="px-3 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm rounded">
+                    Clear all filters
+                </button>
+                <span x-show="filters.length > 0" class="text-xs text-slate-500 ml-2">
+                    <span x-text="filters.filter(f => f.enabled).length"></span> active /
+                    <span x-text="filters.length"></span> total
+                </span>
             </div>
-        </form>
+            <p class="text-xs text-slate-500">All filters are combined with <span class="mono">AND</span>. Use <span class="mono">LIKE</span> with <span class="mono">%</span> wildcards for substring match. Toggle off a filter to keep it but skip applying it.</p>
+        </div>
     </div>
 
     {{-- ─── Bulk form / table ───────────────────────────────────── --}}
     <form method="POST" action="{{ route('dblens.row.bulk-destroy', ['connection' => $connection, 'table' => $table]) }}"
           x-data="{ selected: [] }" id="bulk-form"
+          class="flex-1 flex flex-col min-h-0"
           @submit.prevent="
               if ($el.dataset.confirmed === '1') { $el.submit(); return; }
               $dispatch('open-confirm', {
@@ -152,9 +202,9 @@
         @csrf
         <input type="hidden" name="confirm" value="1">
 
-        <div class="bg-white rounded shadow-sm border border-slate-200 overflow-x-auto">
+        <div class="bg-white rounded shadow-sm border border-slate-200 flex-1 min-h-0 overflow-auto scroll-thin">
             <table class="w-full text-sm">
-                <thead class="bg-slate-50 text-slate-600">
+                <thead class="bg-slate-50 text-slate-600 sticky top-0 z-10 shadow-sm">
                     <tr>
                         @if ($hasPk && ! $readOnly)
                             <th class="px-3 py-2 w-8">
@@ -205,6 +255,17 @@
                                     @unless ($readOnly)
                                         <span class="text-slate-300 mx-1">·</span>
                                         <a href="{{ route('dblens.row.edit', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}" class="text-amber-600 hover:underline">edit</a>
+                                        <span class="text-slate-300 mx-1">·</span>
+                                        <form method="POST" action="{{ route('dblens.row.destroy', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}"
+                                              class="inline"
+                                              data-confirm-title="Delete row"
+                                              data-confirm="Delete this row from [{{ $table }}]? This cannot be undone."
+                                              data-confirm-text="Delete">
+                                            @csrf
+                                            @method('DELETE')
+                                            <input type="hidden" name="confirm" value="1">
+                                            <button type="submit" class="text-red-600 hover:underline">delete</button>
+                                        </form>
                                     @endunless
                                 @endif
                             </td>
@@ -407,6 +468,7 @@
         <summary class="cursor-pointer">SQL</summary>
         <pre class="mt-2 p-3 bg-slate-50 border rounded overflow-x-auto mono">{{ $sql }}</pre>
     </details>
+    </div> {{-- /x-show="ready" --}}
 </div>
 
 <script>
@@ -420,6 +482,8 @@ function dbLensBrowse(cfg) {
         showColsPanel: false,
         visibleCols: [],
         colSearch: '',
+        ready: false,
+        navigating: false,
 
         init() {
             let restored = false;
@@ -437,6 +501,11 @@ function dbLensBrowse(cfg) {
             if (! restored) {
                 this.visibleCols = [...this.columns];
             }
+            // Mark ready so the table becomes visible after column visibility
+            // has been applied — eliminates the flash of hidden columns.
+            this.$nextTick(() => { this.ready = true; });
+            // Reset overlay when the browser restores the page from bfcache
+            window.addEventListener('pageshow', () => { this.navigating = false; });
         },
         persistCols() {
             try {
@@ -463,10 +532,11 @@ function dbLensBrowse(cfg) {
             this.visibleCols = this.visibleCols.filter(c => ! matched.has(c));
         },
         addFilter() {
-            this.filters.push({ column: this.columns[0] || '', op: '=', value: '' });
+            this.filters.push({ column: this.columns[0] || '', op: '=', value: '', enabled: true });
             this.showFilters = true;
         },
         removeFilter(i) { this.filters.splice(i, 1); },
+        clearAllFilters() { this.filters = []; },
     }
 }
 

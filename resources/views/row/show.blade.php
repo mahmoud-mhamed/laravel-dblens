@@ -20,7 +20,9 @@
                 <a href="{{ route('dblens.row.edit', ['connection' => $connection, 'table' => $table, 'rowKey' => $row_key]) }}"
                    class="px-3 py-1.5 bg-amber-500 text-white rounded text-sm hover:bg-amber-600">Edit</a>
                 <form method="POST" action="{{ route('dblens.row.destroy', ['connection' => $connection, 'table' => $table, 'rowKey' => $row_key]) }}"
-                      onsubmit="return confirm('Delete this row? This cannot be undone.');">
+                      data-confirm-title="Delete row"
+                      data-confirm="Delete this row from [{{ $table }}]? This cannot be undone."
+                      data-confirm-text="Delete">
                     @csrf
                     @method('DELETE')
                     <input type="hidden" name="confirm" value="1">

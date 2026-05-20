@@ -19,7 +19,10 @@
 
         @if (config('dblens.allow_truncate', true))
             <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
-                  onsubmit="return confirm('TRUNCATE {{ $table }}? All rows will be removed.');">
+                  data-confirm-title="Truncate table"
+                  data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $table }}]. This cannot be undone."
+                  data-confirm-text="Truncate"
+                  data-confirm-type="{{ $table }}">
                 @csrf
                 <input type="hidden" name="confirm" value="1">
                 <button class="px-3 py-1 bg-amber-500 text-white rounded text-xs">Truncate</button>
@@ -28,7 +31,10 @@
 
         @if (config('dblens.allow_drop_table', true))
             <form method="POST" action="{{ route('dblens.table.drop', ['connection' => $connection, 'table' => $table]) }}"
-                  onsubmit="return confirm('DROP TABLE {{ $table }}? This cannot be undone.');">
+                  data-confirm-title="Drop table"
+                  data-confirm="DROP TABLE [{{ $table }}] permanently. The table structure and all data will be lost. This cannot be undone."
+                  data-confirm-text="Drop table"
+                  data-confirm-type="{{ $table }}">
                 @csrf
                 @method('DELETE')
                 <input type="hidden" name="confirm" value="1">
@@ -86,7 +92,9 @@
                         <button type="button" @click="renaming = !renaming" class="text-slate-600 hover:underline">rename</button>
                         <span class="text-slate-300 mx-1">·</span>
                         <form method="POST" action="{{ route('dblens.column.drop', ['connection' => $connection, 'table' => $table, 'column' => $c['name']]) }}" class="inline"
-                              onsubmit="return confirm('Drop column {{ $c['name'] }}?');">
+                              data-confirm-title="Drop column"
+                              data-confirm="Drop column [{{ $c['name'] }}] from [{{ $table }}]? All data in this column will be lost. This cannot be undone."
+                              data-confirm-text="Drop column">
                             @csrf
                             @method('DELETE')
                             <input type="hidden" name="confirm" value="1">
@@ -160,7 +168,9 @@
                     <td class="px-4 py-2 text-right">
                         @unless ($idx['primary'])
                             <form method="POST" action="{{ route('dblens.index.drop', ['connection' => $connection, 'table' => $table, 'index' => $idx['name']]) }}"
-                                  onsubmit="return confirm('Drop index {{ $idx['name'] }}?');">
+                                  data-confirm-title="Drop index"
+                                  data-confirm="Drop index [{{ $idx['name'] }}] from [{{ $table }}]? This cannot be undone."
+                                  data-confirm-text="Drop index">
                                 @csrf
                                 @method('DELETE')
                                 <input type="hidden" name="confirm" value="1">
@@ -218,7 +228,9 @@
                 @unless ($read_only)
                     <td class="px-4 py-2 text-right">
                         <form method="POST" action="{{ route('dblens.table.fk.drop', ['connection' => $connection, 'table' => $table, 'fk' => $fk['name']]) }}"
-                              onsubmit="return confirm('Drop foreign key {{ $fk['name'] }}?');">
+                              data-confirm-title="Drop foreign key"
+                              data-confirm="Drop foreign key [{{ $fk['name'] }}] from [{{ $table }}]? The referential integrity constraint will be removed. This cannot be undone."
+                              data-confirm-text="Drop FK">
                             @csrf
                             @method('DELETE')
                             <input type="hidden" name="confirm" value="1">

@@ -7,24 +7,32 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class Exporter
 {
-    public function __construct(protected ConnectionManager $cm, protected SchemaInspector $schema) {}
+    public function __construct(
+        protected ConnectionManager $cm,
+        protected SchemaInspector $schema,
+        protected QueryRunner $runner,
+    ) {}
 
-    public function tableResponse(string $connection, string $table, string $format): StreamedResponse
+    public function tableResponse(string $connection, string $table, string $format, array $options = []): StreamedResponse
     {
         $format = strtolower($format);
-        $filename = sprintf('%s-%s-%s.%s', $connection, $table, date('Ymd-His'), $format);
+        $suffix = ! empty($options['filters']) || ! empty($options['search']) ? '-filtered' : '';
+        $filename = sprintf('%s-%s%s-%s.%s', $connection, $table, $suffix, date('Ymd-His'), $format);
         $mime = match ($format) {
             'csv' => 'text/csv',
             'json' => 'application/json',
             default => 'application/sql',
         };
 
-        return new StreamedResponse(function () use ($connection, $table, $format) {
+        // Resolve filter SQL once so we can reuse during streaming
+        [$whereSql, $bindings] = $this->resolveWhere($connection, $table, $options);
+
+        return new StreamedResponse(function () use ($connection, $table, $format, $whereSql, $bindings) {
             $stream = fopen('php://output', 'w');
             match ($format) {
-                'csv' => $this->writeCsv($stream, $connection, $table),
-                'json' => $this->writeJson($stream, $connection, $table),
-                default => $this->writeSqlTable($stream, $connection, $table, true),
+                'csv' => $this->writeCsv($stream, $connection, $table, $whereSql, $bindings),
+                'json' => $this->writeJson($stream, $connection, $table, $whereSql, $bindings),
+                default => $this->writeSqlTable($stream, $connection, $table, true, true, $whereSql, $bindings),
             };
             fclose($stream);
         }, 200, [
@@ -33,6 +41,18 @@ class Exporter
             'Cache-Control' => 'no-store',
             'X-Accel-Buffering' => 'no',
         ]);
+    }
+
+    protected function resolveWhere(string $connection, string $table, array $options): array
+    {
+        $filters = (array) ($options['filters'] ?? []);
+        $search = (string) ($options['search'] ?? '');
+        if (empty($filters) && $search === '') {
+            return ['', []];
+        }
+        $driver = $this->cm->driver($connection);
+        $columns = $this->schema->columns($connection, $table);
+        return $this->runner->buildWhere($driver, $columns, $filters, $search);
     }
 
     /**
@@ -178,12 +198,12 @@ class Exporter
         ]);
     }
 
-    protected function writeCsv($stream, string $connection, string $table): void
+    protected function writeCsv($stream, string $connection, string $table, string $whereSql = '', array $bindings = []): void
     {
         $columns = $this->schema->columns($connection, $table);
         $colNames = array_map(fn ($c) => $c['name'], $columns);
         fputcsv($stream, $colNames);
-        foreach ($this->rowGenerator($connection, $table) as $row) {
+        foreach ($this->rowGenerator($connection, $table, $whereSql, $bindings) as $row) {
             $out = [];
             foreach ($colNames as $c) {
                 $out[] = $row[$c] ?? '';
@@ -192,11 +212,11 @@ class Exporter
         }
     }
 
-    protected function writeJson($stream, string $connection, string $table): void
+    protected function writeJson($stream, string $connection, string $table, string $whereSql = '', array $bindings = []): void
     {
         fwrite($stream, "[");
         $first = true;
-        foreach ($this->rowGenerator($connection, $table) as $row) {
+        foreach ($this->rowGenerator($connection, $table, $whereSql, $bindings) as $row) {
             $prefix = $first ? "\n" : ",\n";
             fwrite($stream, $prefix . '  ' . json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             $first = false;
@@ -204,7 +224,7 @@ class Exporter
         fwrite($stream, "\n]\n");
     }
 
-    protected function writeSqlTable($stream, string $connection, string $table, bool $withCreate, bool $withData = true): void
+    protected function writeSqlTable($stream, string $connection, string $table, bool $withCreate, bool $withData = true, string $whereSql = '', array $bindings = []): void
     {
         $driver = $this->cm->driver($connection);
         $qt = $driver->quoteIdentifier($table);
@@ -228,7 +248,7 @@ class Exporter
 
         $batch = [];
         $batchSize = 100;
-        foreach ($this->rowGenerator($connection, $table) as $row) {
+        foreach ($this->rowGenerator($connection, $table, $whereSql, $bindings) as $row) {
             $vals = [];
             foreach ($colNames as $c) {
                 $v = $row[$c] ?? null;
@@ -255,12 +275,13 @@ class Exporter
     /**
      * Yield rows one-at-a-time using PDO cursor to keep memory low.
      */
-    protected function rowGenerator(string $connection, string $table): Generator
+    protected function rowGenerator(string $connection, string $table, string $whereSql = '', array $bindings = []): Generator
     {
         $driver = $this->cm->driver($connection);
         $pdo = $driver->connection()->getPdo();
-        $stmt = $pdo->prepare('SELECT * FROM ' . $driver->quoteIdentifier($table));
-        $stmt->execute();
+        $sql = 'SELECT * FROM ' . $driver->quoteIdentifier($table) . $whereSql;
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($bindings);
         while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
             yield $row;
         }

@@ -70,14 +70,14 @@
                 <div class="mt-3">
                     <p class="text-xs text-slate-500">Type <span class="mono font-bold text-red-600" x-text="typedConfirmation"></span> to confirm:</p>
                     <input type="text" x-model="typed" x-ref="typedInput"
-                           @keydown.enter.prevent="canConfirm() && confirm()"
+                           @keydown.enter.prevent.stop="canConfirm() && proceed()"
                            class="mt-1 w-full px-3 py-2 border border-slate-300 rounded text-sm mono focus:outline-none focus:border-red-500">
                 </div>
             </template>
         </div>
         <div class="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
-            <button type="button" @click="cancel()" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">Cancel</button>
-            <button type="button" @click="confirm()" :disabled="!canConfirm()"
+            <button type="button" @click.stop="cancel()" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">Cancel</button>
+            <button type="button" @click.stop="proceed()" :disabled="!canConfirm()"
                     :class="danger ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-300' : 'bg-sky-600 hover:bg-sky-700 disabled:bg-sky-300'"
                     class="px-4 py-2 text-white rounded text-sm font-semibold disabled:cursor-not-allowed"
                     x-text="confirmText"></button>
@@ -117,7 +117,7 @@ function dbLensConfirm() {
         canConfirm() {
             return ! this.typedConfirmation || this.typed === this.typedConfirmation;
         },
-        confirm() {
+        proceed() {
             if (! this.canConfirm()) return;
             const fn = this.pending;
             this.visible = false;
@@ -142,6 +142,8 @@ document.addEventListener('submit', function (e) {
     if (! form.dataset.confirm) return;
     if (form.dataset.confirmed === '1') return;
     e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
     window.dispatchEvent(new CustomEvent('open-confirm', { detail: {
         title: form.dataset.confirmTitle || 'Confirm',
         message: form.dataset.confirm,

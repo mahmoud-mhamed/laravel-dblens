@@ -60,7 +60,11 @@ class QueryRunner
         return ['rows' => $rows, 'paginator' => $paginator, 'sql' => $sql, 'total' => $total];
     }
 
-    protected function buildWhere($driver, array $columns, array $filters, string $search): array
+    /**
+     * Build the WHERE clause + bindings from filter / search inputs.
+     * @return array{0:string,1:array<int,mixed>}  [whereSql, bindings]
+     */
+    public function buildWhere($driver, array $columns, array $filters, string $search): array
     {
         $conds = [];
         $bindings = [];

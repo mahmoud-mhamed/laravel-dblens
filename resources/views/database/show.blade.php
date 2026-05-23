@@ -24,6 +24,28 @@
 @section('content')
 <div x-data="dbLensExportModal({{ json_encode(array_map(fn ($t) => ['name' => $t['name'], 'rows' => $t['rows'], 'size' => $t['size']], $tables)) }})">
 
+    {{-- ─── Quick actions ───────────────────────────────────────── --}}
+    @php
+        $quick = [
+            ['⚡', 'SQL Editor',  'Run custom queries with EXPLAIN',     route('dblens.sql.show', ['connection' => $connection]),     'sky'],
+            ['🗺️', 'ER Diagram', 'Interactive schema map with FK arrows', route('dblens.er.show', ['connection' => $connection]),       'violet'],
+            ['🧩', 'DB Objects',  'Views · procedures · triggers · events', route('dblens.objects.index', ['connection' => $connection]), 'emerald'],
+            ['ℹ️',  'About',       'Package info, features, & version',     route('dblens.about'),                                        'slate'],
+        ];
+    @endphp
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        @foreach ($quick as [$icon, $title, $desc, $url, $color])
+            <a href="{{ $url }}"
+               class="group bg-white rounded shadow-sm border border-slate-200 p-3 flex items-center gap-3 hover:border-{{ $color }}-400 hover:shadow transition">
+                <div class="text-2xl shrink-0 w-10 h-10 flex items-center justify-center rounded bg-{{ $color }}-50 group-hover:bg-{{ $color }}-100">{{ $icon }}</div>
+                <div class="min-w-0">
+                    <div class="font-semibold text-sm text-slate-700 group-hover:text-{{ $color }}-700">{{ $title }}</div>
+                    <div class="text-[11px] text-slate-500 truncate">{{ $desc }}</div>
+                </div>
+            </a>
+        @endforeach
+    </div>
+
     {{-- ─── Database stats ──────────────────────────────────────── --}}
     <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <div class="bg-white rounded shadow-sm border border-slate-200 p-3">

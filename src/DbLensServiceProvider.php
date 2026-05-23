@@ -51,6 +51,7 @@ class DbLensServiceProvider extends ServiceProvider
 
         if ($this->isEnabledForEnvironment() && config('dblens.viewer.enabled', true)) {
             $this->registerRoutes();
+            $this->registerConnectionErrorRenderer();
         }
 
         if ($this->app->runningInConsole()) {
@@ -59,6 +60,41 @@ class DbLensServiceProvider extends ServiceProvider
                 DbLensMakeMigrationCommand::class,
             ]);
         }
+    }
+
+    /**
+     * Render driver/connection failures from dblens routes as a friendly page
+     * instead of Laravel's stack-trace error screen.
+     */
+    protected function registerConnectionErrorRenderer(): void
+    {
+        $handler = $this->app->make(\Illuminate\Contracts\Debug\ExceptionHandler::class);
+        if (! method_exists($handler, 'renderable')) return;
+
+        $prefix = trim((string) config('dblens.viewer.path', 'dblens'), '/');
+
+        $handler->renderable(function (\Throwable $e, $request) use ($prefix) {
+            if (! $request->is($prefix.'*')) return null;
+            $isConnError = $e instanceof \Illuminate\Database\QueryException
+                        || $e instanceof \PDOException
+                        || ($e->getPrevious() instanceof \PDOException)
+                        || ($e instanceof \InvalidArgumentException && str_starts_with($e->getMessage(), 'DbLens: driver '))
+                        || preg_match('/Database connection \[.+\] not configured|Driver \[.+\] not supported/i', $e->getMessage());
+            if (! $isConnError) return null;
+
+            $connection = $request->route('connection');
+            $connections = $this->app->make(ConnectionManager::class)->available();
+
+            return response()->view('dblens::connection-error', [
+                'connection' => $connection,
+                'connections' => $connections,
+                'database' => null,
+                'tables' => [],
+                'message' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'config' => $connection ? config("database.connections.{$connection}", []) : [],
+            ], 503);
+        });
     }
 
     protected function isEnabledForEnvironment(): bool

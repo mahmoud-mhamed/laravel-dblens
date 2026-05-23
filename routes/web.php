@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use MahmoudMhamed\DbLens\Http\Controllers\AboutController;
 use MahmoudMhamed\DbLens\Http\Controllers\AuthController;
 use MahmoudMhamed\DbLens\Http\Controllers\DashboardController;
 use MahmoudMhamed\DbLens\Http\Controllers\DatabaseController;
@@ -19,6 +20,7 @@ Route::post('/login', [AuthController::class, 'authenticate'])->name('login.subm
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+Route::get('/about', [AboutController::class, 'show'])->name('about');
 
 // Global search across tables of the active connection
 Route::get('/{connection}/search', [DatabaseController::class, 'search'])->name('search');
@@ -50,6 +52,7 @@ Route::post('/{connection}/sql', [SqlController::class, 'run'])->name('sql.run')
 // Table level
 Route::get('/{connection}/t/{table}', [TableController::class, 'browse'])->name('table.browse');
 Route::get('/{connection}/t/{table}/structure', [TableController::class, 'structure'])->name('table.structure');
+Route::get('/{connection}/t/{table}/tree', [TableController::class, 'tree'])->name('table.tree');
 Route::get('/{connection}/t/{table}/info', [TableController::class, 'info'])->name('table.info');
 Route::get('/{connection}/t/{table}/export', [ExportController::class, 'table'])->name('table.export');
 Route::get('/{connection}/t/{table}/import', [ImportController::class, 'form'])->name('table.import.form');

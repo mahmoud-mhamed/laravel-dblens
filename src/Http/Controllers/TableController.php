@@ -79,6 +79,62 @@ class TableController extends Controller
         return $out;
     }
 
+    public function tree(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema)
+    {
+        $cm->assertAllowed($connection);
+        abort_unless($schema->tableExists($connection, $table), 404);
+
+        $fks = $schema->foreignKeys($connection, $table);
+        $selfFk = null;
+        foreach ($fks as $fk) {
+            if ($fk['foreign_table'] === $table) { $selfFk = $fk; break; }
+        }
+        abort_unless($selfFk, 404, 'Table has no self-referential foreign key.');
+
+        $driver = $cm->driver($connection);
+        $columns = $schema->columns($connection, $table);
+        $columnNames = array_map(fn ($c) => $c['name'], $columns);
+
+        // Choose label column: ?label= override, else first sensible candidate, else PK.
+        $candidates = ['name','title','label','code','slug','email','username'];
+        $label = $request->query('label');
+        if (! $label || ! in_array($label, $columnNames, true)) {
+            $label = null;
+            foreach ($candidates as $c) {
+                if (in_array($c, $columnNames, true)) { $label = $c; break; }
+            }
+        }
+        $pk = $schema->primaryKey($connection, $table);
+        $pkCol = $pk[0] ?? $selfFk['foreign_column'];
+        $label = $label ?: $pkCol;
+
+        $hasDeletedAt = in_array('deleted_at', $columnNames, true);
+        $max = min((int) $request->query('limit', 5000), 20000);
+        $cols = [$pkCol, $selfFk['column'], $label];
+        if ($hasDeletedAt) $cols[] = 'deleted_at';
+        $cols = array_values(array_unique(array_filter($cols)));
+        $qcols = implode(',', array_map(fn ($c) => $driver->quoteIdentifier($c), $cols));
+        $qt = $driver->quoteIdentifier($table);
+        $rows = $driver->connection()->select("SELECT {$qcols} FROM {$qt} LIMIT {$max}");
+        $rows = array_map(fn ($r) => (array) $r, $rows);
+        $truncated = count($rows) >= $max;
+
+        return view('dblens::table.tree', [
+            'connection' => $connection,
+            'connections' => $cm->available(),
+            'database' => $cm->databaseName($connection),
+            'tables' => $schema->tables($connection),
+            'table' => $table,
+            'columns' => $columns,
+            'rows' => $rows,
+            'pk_col' => $pkCol,
+            'parent_col' => $selfFk['column'],
+            'label_col' => $label,
+            'truncated' => $truncated,
+            'label_candidates' => array_values(array_filter($columnNames, fn ($c) => in_array($c, $candidates, true) || $c === $pkCol)),
+        ]);
+    }
+
     public function structure(string $connection, string $table, ConnectionManager $cm, SchemaInspector $schema)
     {
         $cm->assertAllowed($connection);

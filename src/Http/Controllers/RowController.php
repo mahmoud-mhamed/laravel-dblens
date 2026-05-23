@@ -52,7 +52,7 @@ class RowController extends Controller
             'row' => $row,
             'primary_key' => $pkCols,
             'pk_values' => $pkValues,
-            'row_key' => $rowKey,
+            'row_key' => $this->encodeRowKey($pkValues),
             'foreign_keys' => $foreignKeys,
             'incoming_fks' => $incoming,
             'incoming_counts' => $incomingCounts,
@@ -130,7 +130,7 @@ class RowController extends Controller
             'mode' => 'edit',
             'row' => $row,
             'pk_values' => $pkValues,
-            'row_key' => $rowKey,
+            'row_key' => $this->encodeRowKey($pkValues),
         ]);
     }
 

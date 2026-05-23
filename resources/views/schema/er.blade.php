@@ -38,24 +38,25 @@
             📌 <span x-text="active"></span>
             <button type="button" @click="active = null; renderArrows()" class="ml-1 text-sky-500 hover:text-sky-800">✕</button>
         </span>
-        {{-- Saved views --}}
-        <div class="flex items-center gap-1 ml-2 border-l border-slate-200 pl-2">
-            <select x-model="selectedViewId" @change="loadSelectedView()"
-                    class="px-2 py-1 border border-slate-300 rounded text-xs max-w-[160px]">
-                <option value="">— saved views —</option>
-                <template x-for="v in savedViews" :key="v.id">
-                    <option :value="v.id" x-text="v.name"></option>
-                </template>
-            </select>
-            <button type="button" @click="promptSaveView()" class="px-2 py-1 bg-emerald-600 text-white rounded text-xs hover:bg-emerald-700" title="Save current view">💾</button>
-            <button type="button" x-show="selectedViewId" x-cloak
-                    @click="deleteSelectedView()"
-                    class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200" title="Delete saved view">🗑</button>
-        </div>
+        {{-- Saved-views controls + counts are teleported into the global topbar. --}}
+        <template x-teleport="#dblens-topbar-extra">
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500 mono">{{ count($diagram) }} tables · {{ count($fks) }} FKs</span>
+                <select x-model="selectedViewId" @change="loadSelectedView()"
+                        class="px-2 py-1 border border-slate-300 rounded text-xs max-w-[160px]">
+                    <option value="">— saved views —</option>
+                    <template x-for="v in savedViews" :key="v.id">
+                        <option :value="v.id" x-text="v.name"></option>
+                    </template>
+                </select>
+                <button type="button" @click="promptSaveView()" class="px-2 py-1 bg-emerald-600 text-white rounded text-xs hover:bg-emerald-700" title="Save current view">💾</button>
+                <button type="button" x-show="selectedViewId" x-cloak
+                        @click="deleteSelectedView()"
+                        class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200" title="Delete saved view">🗑</button>
+            </div>
+        </template>
 
-        <span class="text-xs text-slate-500 ml-auto mono">
-            {{ count($diagram) }} tables · {{ count($fks) }} FKs
-        </span>
+        <span class="ml-auto"></span>
     </div>
 
     {{-- ─── Canvas + side panel ────────────────────────────────── --}}
@@ -264,6 +265,7 @@ function dbLensER(cfg) {
         saveUrl: cfg.saveUrl,
         deleteUrlTpl: cfg.deleteUrlTpl,
         csrf: cfg.csrf,
+        suspendAutoLayout: false,
 
         init() {
             this.buildNeighbors();
@@ -272,17 +274,17 @@ function dbLensER(cfg) {
             this.$watch('expanded', () => this.$nextTick(() => this.computeArrows()));
             this.$watch('active', () => {
                 this.renderArrows();
-                if (this.showRelatedOnly && this.active) {
+                if (! this.suspendAutoLayout && this.showRelatedOnly && this.active) {
                     this.layoutRelated();
                     this.$nextTick(() => { this.computeArrows(); this.fitVisible(); });
                 }
             });
             this.$watch('showActiveOnly', () => this.renderArrows());
             this.$watch('showRelatedOnly', (v) => {
-                if (v && this.active) this.layoutRelated();
+                if (! this.suspendAutoLayout && v && this.active) this.layoutRelated();
                 this.$nextTick(() => {
                     this.computeArrows();
-                    if (v && this.active) this.fitVisible();
+                    if (! this.suspendAutoLayout && v && this.active) this.fitVisible();
                 });
             });
             this.fitAll();
@@ -318,24 +320,34 @@ function dbLensER(cfg) {
 
         applyState(s) {
             if (! s) return;
-            if (s.positions) {
-                for (const t of this.tables) {
-                    if (s.positions[t.name]) {
-                        t.x = s.positions[t.name].x;
-                        t.y = s.positions[t.name].y;
+            // Suppress auto-layout watchers while we restore saved positions,
+            // otherwise toggling `active` would re-run layoutRelated() and
+            // override the persisted x/y of each table.
+            this.suspendAutoLayout = true;
+            try {
+                if (s.positions) {
+                    for (const t of this.tables) {
+                        if (s.positions[t.name]) {
+                            t.x = s.positions[t.name].x;
+                            t.y = s.positions[t.name].y;
+                        }
                     }
                 }
+                this.onlyKeys = !! s.onlyKeys;
+                this.showArrows = !! s.showArrows;
+                this.showActiveOnly = !! s.showActiveOnly;
+                this.showRelatedOnly = !! s.showRelatedOnly;
+                this.showSidePanel = s.showSidePanel !== false;
+                this.expanded = s.expanded || {};
+                this.active = s.active || null;
+                if (s.pan) this.pan = { ...s.pan };
+                if (typeof s.scale === 'number') this.scale = s.scale;
+            } finally {
+                this.$nextTick(() => {
+                    this.suspendAutoLayout = false;
+                    this.computeArrows();
+                });
             }
-            this.onlyKeys = !! s.onlyKeys;
-            this.showArrows = !! s.showArrows;
-            this.showActiveOnly = !! s.showActiveOnly;
-            this.showRelatedOnly = !! s.showRelatedOnly;
-            this.showSidePanel = s.showSidePanel !== false;
-            this.expanded = s.expanded || {};
-            this.active = s.active || null;
-            if (s.pan) this.pan = { ...s.pan };
-            if (typeof s.scale === 'number') this.scale = s.scale;
-            this.$nextTick(() => this.computeArrows());
         },
 
         async promptSaveView() {

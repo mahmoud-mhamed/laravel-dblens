@@ -10,18 +10,23 @@ A phpMyAdmin-style database browser & manager for Laravel — built with Blade, 
 
 ### Browsing
 - 🗂️ List databases / tables of any configured Laravel DB connection
+- 🎛️ Dashboard with quick-action cards (SQL · ER · DB Objects · About) + per-DB stats (tables / rows / size / largest)
 - 📊 Table info card (engine, collation, size, rows, auto-increment, created/updated, comment)
 - 🧱 Structure view: columns, indexes, outgoing FKs, **incoming** FKs (who references this table)
-- 🔍 **Per-table search** (`search` box) — searches across all text/numeric columns
+- 🔍 **Per-table search** plus optional **per-column inline filters** in the header row
 - 🌐 **Global cross-table search** — finds a term in every text column of every table
 - 🔗 **Clickable foreign keys** — clicking an FK cell jumps to the referenced row
-- 👁️ **Single-row view** — full row + all outgoing FK links + counts of incoming references
+- 👁️ **Hover preview popover** — see full untruncated row data without leaving the list
+- 🌳 **Tree view** for self-referential tables (parent_id → id) with expand/collapse
 - ↕️ Column sort, server-side pagination, configurable per-page
+- ⚡ **Approximate row count** on huge tables — uses engine stats instead of `COUNT(*)` (threshold configurable)
 - 🙈 Mask sensitive columns (`password`, `remember_token`, …) by name
 
 ### Row CRUD
-- ✏️ Insert / edit / delete rows
-- 📋 Auto-generated forms from column metadata (textarea for TEXT/JSON, dropdown for ENUM/BOOL, `datetime-local`/`date` for date types)
+- ✏️ Insert / edit / delete rows (icon-only action column)
+- ⚡ **Inline cell editor** — double-click any cell; auto-picks the right input (FK lookup, enum, bool, json textarea, date, number, text)
+- 🧠 **Smart cell content viewer** on the row page — collapsible JSON tree, image preview (URL or base64), Markdown, XML
+- 📋 Auto-generated forms from column metadata
 - 🗑️ Bulk delete from the browse view (checkboxes + select-all)
 - 🛡️ Read-only mode flag disables every write path
 - 💥 Destructive ops require a confirmation flag + JS confirm dialog
@@ -35,14 +40,31 @@ A phpMyAdmin-style database browser & manager for Laravel — built with Blade, 
 
 ### SQL editor
 - ⚡ Run arbitrary SQL with timing + row-count display
+- 🧭 **EXPLAIN** button — driver-aware query plan (`EXPLAIN` / `EXPLAIN QUERY PLAN`) without executing the query
 - 🔒 Read-only by default; flip a config flag to enable writes
 - ✂️ Result-set truncation cap so a `SELECT *` on a huge table can't crash the page
+
+### Database objects
+- 🧩 Browse views, stored routines (procedures/functions), triggers, and events
+- 📜 View full DDL definition for each object
+- 🗑️ Drop any object (respects `read_only`)
+
+### ER diagram
+- 🗺️ Interactive zoom/pan/drag schema map with FK arrows
+- 🎯 Click any arrow to see `from.col → to.col` and the FK constraint name
+- 📌 Pin an "active" table; **related-only** mode hides everything except the active table and its FK neighbors (auto-arranged in a ring)
+- 💾 **Saved views** — persist a fully laid-out diagram (positions + zoom + toggles + active table) as JSON; reload in one click
+- 🔍 Search with Enter / Shift+Enter to jump between matches
 
 ### Export & Import
 - ⬇️ Per-table export → `SQL` (DROP + CREATE + batched INSERTs), `CSV`, or `JSON`
 - ⬇️ Full-database SQL dump (streamed; works on huge tables — uses a PDO cursor)
 - ⬆️ Import SQL dump (transaction-wrapped; respects strings, backticks, line + block comments)
 - ⬆️ Import CSV into an existing table (header-based column matching or positional)
+
+### Artisan commands
+- `php artisan dblens:install` — publish config, verify env, list DB connections (add `--views` for full template control)
+- `php artisan dblens:make-migration {table}` — generate a Laravel migration from an existing table (columns + indexes + FKs)
 
 ### Security
 - 🚫 Disabled in production by default (`enable_production = false`)
@@ -52,6 +74,7 @@ A phpMyAdmin-style database browser & manager for Laravel — built with Blade, 
 - ✅ Explicit confirmation flag required for destructive operations
 - 🎯 Allowlist of permitted DB connections (`config('dblens.connections.allowed')`)
 - 🔍 Identifier quoting on every dynamic name — no string concatenation of unsafe input
+- 🩺 **Friendly connection-error page** — misconfigured drivers (e.g. `pgsql` on a MySQL port) render a clean 503 instead of a stack trace
 
 ### Supported drivers
 - MySQL / MariaDB

@@ -30,6 +30,7 @@
         @endisset
     </div>
     <div class="text-xs text-slate-500 flex items-center gap-2">
+        <div id="dblens-topbar-extra" class="flex items-center gap-2"></div>
         @if (config('dblens.read_only'))
             <span class="px-2 py-1 bg-amber-100 text-amber-700 rounded">READ-ONLY</span>
         @endif

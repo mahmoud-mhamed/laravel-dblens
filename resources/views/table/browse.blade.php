@@ -124,6 +124,16 @@
             <span class="text-xs text-slate-500 ml-auto" @if (! empty($approximate)) title="Estimated from engine statistics — exact COUNT(*) skipped for performance" @endif>
                 @if (! empty($approximate))~@endif{{ number_format($total) }} row(s)
             </span>
+            @php
+                $hasSelfFk = false;
+                foreach (($foreign_keys ?? []) as $fk) {
+                    if (($fk['foreign_table'] ?? null) === $table) { $hasSelfFk = true; break; }
+                }
+            @endphp
+            @if ($hasSelfFk)
+                <a href="{{ route('dblens.table.tree', ['connection' => $connection, 'table' => $table]) }}"
+                   class="px-3 py-2 bg-emerald-100 text-emerald-700 rounded text-sm hover:bg-emerald-200" title="Hierarchical tree view">🌳 Tree</a>
+            @endif
             @unless ($readOnly)
                 <a href="{{ route('dblens.row.create', ['connection' => $connection, 'table' => $table]) }}"
                    class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">+ Insert</a>
@@ -242,8 +252,12 @@
                 </thead>
                 <tbody>
                     @forelse ($rows as $row)
-                        @php $rk = $rowKey($row); @endphp
-                        <tr class="border-t hover:bg-slate-50">
+                        @php
+                            $rk = $rowKey($row);
+                            $softDeleted = array_key_exists('deleted_at', $row) && $row['deleted_at'] !== null;
+                        @endphp
+                        <tr class="border-t {{ $softDeleted ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'hover:bg-slate-50' }}"
+                            @if ($softDeleted) title="Soft-deleted at {{ $row['deleted_at'] }}" @endif>
                             @if ($hasPk && ! $readOnly)
                                 <td class="px-3 py-2">
                                     @if ($rk)
@@ -278,20 +292,20 @@
                                     </table>
                                 </div>
                                 @if ($rk)
-                                    <a href="{{ route('dblens.row.show', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}" class="text-sky-600 hover:underline">view</a>
+                                    <a href="{{ route('dblens.row.show', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}"
+                                       class="text-sky-600 hover:text-sky-800" title="Open row page">🔍</a>
                                     @unless ($readOnly)
-                                        <span class="text-slate-300 mx-1">·</span>
-                                        <a href="{{ route('dblens.row.edit', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}" class="text-amber-600 hover:underline">edit</a>
-                                        <span class="text-slate-300 mx-1">·</span>
+                                        <a href="{{ route('dblens.row.edit', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}"
+                                           class="text-amber-600 hover:text-amber-800 ml-1" title="Edit row">✎</a>
                                         <form method="POST" action="{{ route('dblens.row.destroy', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}"
-                                              class="inline"
+                                              class="inline ml-1"
                                               data-confirm-title="Delete row"
                                               data-confirm="Delete this row from [{{ $table }}]? This cannot be undone."
                                               data-confirm-text="Delete">
                                             @csrf
                                             @method('DELETE')
                                             <input type="hidden" name="confirm" value="1">
-                                            <button type="submit" class="text-red-600 hover:underline">delete</button>
+                                            <button type="submit" class="text-red-600 hover:text-red-800" title="Delete row">🗑</button>
                                         </form>
                                     @endunless
                                 @endif

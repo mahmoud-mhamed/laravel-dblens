@@ -235,6 +235,11 @@ return [
         'enabled' => env('DBLENS_LOG_ACTIVITY', 'auto'),
         'log_name' => 'dblens',
         'connection' => env('DBLENS_LOG_CONNECTION'), // null → spatie default
+        // Auth guards to check when resolving the causer (causer_type /
+        // causer_id). Leave empty to walk every guard in `auth.guards`. Set
+        // to e.g. ['admin', 'web'] to restrict and control priority — the
+        // first guard that reports `check() === true` wins.
+        'guards' => [],
         // Capture the row's pre-image (SELECT before UPDATE/DELETE). Adds I/O.
         'capture_old_values' => true,
         // Persist the raw SQL of write queries run through the SQL editor.

@@ -3,6 +3,7 @@
 namespace MahmoudMhamed\DbLens\Services;
 
 use Illuminate\Support\Facades\Schema;
+use MahmoudMhamed\DbLens\Services\ModelCastResolver;
 
 /**
  * Thin wrapper around spatie/laravel-activitylog. Silently no-ops when the
@@ -80,10 +81,100 @@ class ActivityLogger
             $logger = activity((string) config('dblens.activity_log.log_name', 'dblens'))
                 ->event($event)
                 ->withProperties($properties);
-            if ($user = auth()->user()) $logger->causedBy($user);
+
+            if ($subject = $this->resolveSubject($properties)) {
+                $logger->performedOn($subject);
+            }
+            // `session_data.guard` was already populated by enrich() if that
+            // section is enabled; here we just hand the user model to spatie
+            // so causer_type / causer_id end up on the activity row itself.
+            [$user] = $this->resolveCauser();
+            if ($user) {
+                $logger->causedBy($user);
+            }
             $logger->log($description);
         } catch (\Throwable $e) {
             // Logging must never break the user's action.
+        }
+    }
+
+    /**
+     * Find the logged-in user across all configured guards so spatie's
+     * `causer_type` / `causer_id` are populated even when the app uses a
+     * non-default guard (e.g. `admin`, `api`).
+     *
+     * Honors `dblens.activity_log.guards` if set — otherwise walks every
+     * guard defined in `auth.guards`. The default guard is checked first.
+     *
+     * @return array{0:?\Illuminate\Contracts\Auth\Authenticatable,1:?string}
+     *         [user, guardName]
+     */
+    protected function resolveCauser(): array
+    {
+        try {
+            $configured = (array) config('dblens.activity_log.guards', []);
+            $guards = ! empty($configured)
+                ? $configured
+                : array_keys((array) config('auth.guards', []));
+
+            // Default guard first so the common case is one call.
+            $default = config('auth.defaults.guard');
+            if ($default && in_array($default, $guards, true)) {
+                array_unshift($guards, $default);
+                $guards = array_values(array_unique($guards));
+            }
+
+            foreach ($guards as $name) {
+                try {
+                    $guard = auth()->guard($name);
+                    if ($guard->check() && ($user = $guard->user())) {
+                        return [$user, (string) $name];
+                    }
+                } catch (\Throwable $e) {
+                    // Some guards (passport, session w/o request) can throw
+                    // when probed out of context — skip them.
+                    continue;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Auth manager itself broken — give up silently.
+        }
+        return [null, null];
+    }
+
+    /**
+     * Build a "subject" Eloquent instance for spatie when the event's payload
+     * mentions a table that maps to a Model. Lets the activity log link back
+     * via `subject_type` + `subject_id` (e.g. `App\Models\Booking`, `42`)
+     * without an extra database round-trip.
+     */
+    protected function resolveSubject(array $props): ?\Illuminate\Database\Eloquent\Model
+    {
+        $table = $props['table'] ?? null;
+        $pk = $props['pk'] ?? null;
+        if (! is_string($table) || ! is_array($pk) || empty($pk)) return null;
+        // spatie's subject_id column is a single value; composite PKs can't
+        // be represented faithfully, so skip them.
+        if (count($pk) !== 1) return null;
+
+        try {
+            $resolver = app(ModelCastResolver::class);
+        } catch (\Throwable $e) {
+            return null;
+        }
+        $class = $resolver->modelFor($table);
+        if (! $class || ! class_exists($class)) return null;
+
+        try {
+            /** @var \Illuminate\Database\Eloquent\Model $model */
+            $model = new $class;
+            $keyName = $model->getKeyName();
+            $id = reset($pk);
+            $model->setAttribute($keyName, $id);
+            $model->exists = true;
+            return $model;
+        } catch (\Throwable $e) {
+            return null;
         }
     }
 
@@ -132,13 +223,10 @@ class ActivityLogger
         }
 
         if (($sections['session_data'] ?? true)) {
-            $guard = null;
-            try {
-                $guard = auth()->getDefaultDriver();
-            } catch (\Throwable $e) {}
+            [$user, $guard] = $this->resolveCauser();
             $props['session_data'] ??= [
                 'guard' => $guard,
-                'authenticated' => (bool) auth()->user(),
+                'authenticated' => (bool) $user,
             ];
         }
 

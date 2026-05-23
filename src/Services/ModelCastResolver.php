@@ -11,6 +11,9 @@ class ModelCastResolver
     /** @var array<string,array<string,string>>|null table => column => enumClass */
     protected ?array $map = null;
 
+    /** @var array<string,string>|null table => model FQCN */
+    protected ?array $modelMap = null;
+
     /**
      * Get all detected enum casts keyed by table => column => enum class FQCN.
      */
@@ -31,10 +34,45 @@ class ModelCastResolver
         return $this->map = $map;
     }
 
+    /**
+     * Allow callers to override / preload the table → model map. Useful for
+     * apps whose models live outside the configured `models_path`.
+     *
+     * @param  array<string,string>  $map  table => model FQCN
+     */
+    public function setTableModelMap(array $map): void
+    {
+        $this->modelMap = array_filter($map, fn ($c) => is_string($c) && class_exists($c));
+    }
+
     public function castFor(string $table, string $column): ?string
     {
         $map = $this->getEnumCasts();
         return $map[$table][$column] ?? null;
+    }
+
+    /**
+     * Return the Eloquent model FQCN bound to a given table, or null if none
+     * was found in the configured models path. Result is cached for the life
+     * of the request.
+     */
+    public function modelFor(string $table): ?string
+    {
+        if ($this->modelMap === null) {
+            $this->scanModels();
+        }
+        return $this->modelMap[$table] ?? null;
+    }
+
+    /**
+     * @return array<string,string>  table => model FQCN
+     */
+    public function tableModelMap(): array
+    {
+        if ($this->modelMap === null) {
+            $this->scanModels();
+        }
+        return $this->modelMap ?? [];
     }
 
     /**
@@ -68,6 +106,7 @@ class ModelCastResolver
      */
     protected function scanModels(): array
     {
+        $this->modelMap = [];
         $path = config('dblens.models_path');
         if (! $path || ! is_dir($path)) {
             return [];
@@ -90,8 +129,15 @@ class ModelCastResolver
                 /** @var Model $instance */
                 $instance = $ref->newInstanceWithoutConstructor();
                 $table = $instance->getTable();
-                $casts = $instance->getCasts();
 
+                // Pick the first concrete model we see per table. Two models
+                // sharing a table (e.g. a base + a child) is rare; the first
+                // wins and the rest are silently ignored.
+                if (! isset($this->modelMap[$table])) {
+                    $this->modelMap[$table] = $class;
+                }
+
+                $casts = $instance->getCasts();
                 foreach ($casts as $col => $cast) {
                     // Strip the modifiers Laravel allows: "App\Foo:arg1,arg2"
                     $castClass = is_string($cast) ? explode(':', $cast)[0] : null;

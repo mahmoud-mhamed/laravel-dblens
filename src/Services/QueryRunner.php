@@ -4,6 +4,7 @@ namespace MahmoudMhamed\DbLens\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Request;
+use MahmoudMhamed\DbLens\Support\Sql\PkClause;
 
 class QueryRunner
 {
@@ -127,7 +128,7 @@ class QueryRunner
                 $parts = [];
                 foreach ($searchable as $col) {
                     $qc = $driver->quoteIdentifier($col);
-                    $parts[] = "CAST({$qc} AS CHAR) LIKE ?";
+                    $parts[] = $driver->castToText($qc) . ' LIKE ?';
                     $bindings[] = "%{$search}%";
                 }
                 $conds[] = '(' . implode(' OR ', $parts) . ')';
@@ -144,16 +145,11 @@ class QueryRunner
      */
     public function findRow(string $connection, string $table, array $pkValues): ?array
     {
+        if (empty($pkValues)) return null;
         $driver = $this->cm->driver($connection);
         $qt = $driver->quoteIdentifier($table);
-        $conds = [];
-        $bindings = [];
-        foreach ($pkValues as $col => $val) {
-            $conds[] = $driver->quoteIdentifier($col) . ' = ?';
-            $bindings[] = $val;
-        }
-        if (empty($conds)) return null;
-        $sql = "SELECT * FROM {$qt} WHERE " . implode(' AND ', $conds) . ' LIMIT 1';
+        [$where, $bindings] = PkClause::build($driver, $pkValues);
+        $sql = "SELECT * FROM {$qt} WHERE {$where} LIMIT 1";
         $row = $driver->connection()->selectOne($sql, $bindings);
         return $row ? (array) $row : null;
     }
@@ -162,11 +158,18 @@ class QueryRunner
      * Run a global search across all (or selected) tables of a connection.
      * Returns array<table_name, ['matches'=>int, 'sample'=>row]>
      */
-    public function globalSearch(string $connection, string $term, array $tables = [], int $perTableLimit = 5): array
+    public function globalSearch(string $connection, string $term, array $tables = [], ?int $perTableLimit = null): array
     {
         if ($term === '') return [];
+        $perTableLimit = $perTableLimit ?? (int) config('dblens.global_search.per_table_limit', 5);
+        $maxTables = (int) config('dblens.global_search.max_tables', 100);
+        $timeoutMs = (int) config('dblens.global_search.statement_timeout_ms', 2000);
+
         $driver = $this->cm->driver($connection);
         $allTables = $tables ?: array_map(fn ($t) => $t['name'], $driver->tables());
+        if ($maxTables > 0 && count($allTables) > $maxTables) {
+            $allTables = array_slice($allTables, 0, $maxTables);
+        }
         $results = [];
         foreach ($allTables as $t) {
             $columns = $driver->columns($t);
@@ -180,17 +183,34 @@ class QueryRunner
                 $bindings[] = "%{$term}%";
             }
             $where = implode(' OR ', $parts);
+            $countSql = $this->applyStatementTimeout($driver, "SELECT COUNT(*) as c FROM {$qt} WHERE {$where}", $timeoutMs);
+            $sampleSql = $this->applyStatementTimeout($driver, "SELECT * FROM {$qt} WHERE {$where} LIMIT {$perTableLimit}", $timeoutMs);
             try {
-                $count = (int) ($driver->connection()->selectOne("SELECT COUNT(*) as c FROM {$qt} WHERE {$where}", $bindings)->c ?? 0);
+                $count = (int) ($driver->connection()->selectOne($countSql, $bindings)->c ?? 0);
                 if ($count > 0) {
-                    $sample = $driver->connection()->select("SELECT * FROM {$qt} WHERE {$where} LIMIT {$perTableLimit}", $bindings);
+                    $sample = $driver->connection()->select($sampleSql, $bindings);
                     $results[$t] = ['matches' => $count, 'sample' => array_map(fn ($r) => (array) $r, $sample)];
                 }
             } catch (\Throwable $e) {
-                // skip table errors silently
+                // Per-table errors (timeout, permission, weird collation) are
+                // expected at this scale — just skip the table.
             }
         }
         return $results;
+    }
+
+    /**
+     * Best-effort per-statement timeout. MySQL has a SELECT-only hint, so we
+     * can only patch SELECT … queries. Other drivers fall back to the raw
+     * SQL (server-side timeouts still apply if configured).
+     */
+    protected function applyStatementTimeout($driver, string $sql, int $timeoutMs): string
+    {
+        if ($timeoutMs <= 0) return $sql;
+        if ($driver->name() === 'mysql' && preg_match('/^\s*SELECT\s+/i', $sql)) {
+            return preg_replace('/^(\s*SELECT)\s+/i', '$1 /*+ MAX_EXECUTION_TIME(' . $timeoutMs . ') */ ', $sql, 1);
+        }
+        return $sql;
     }
 
     /**
@@ -257,6 +277,14 @@ class QueryRunner
         }
         $affected = $conn->affectingStatement($sql);
         $duration = (int) ((microtime(true) - $start) * 1000);
+
+        $logger = app(ActivityLogger::class);
+        $props = ['connection' => $connection, 'affected' => $affected, 'duration_ms' => $duration];
+        if (config('dblens.activity_log.capture_sql', false)) {
+            $props['sql'] = $sql;
+        }
+        $logger->log('sql_executed', "Executed write SQL on {$connection} (affected {$affected})", $props);
+
         return [
             'type' => 'write',
             'rows' => [],

@@ -17,7 +17,8 @@
         "pestphp/pest-plugin-laravel": "^2.0|^3.0"
     },
     "suggest": {
-        "spatie/laravel-activitylog": "Auto-record DbLens write operations (CRUD, DDL, truncate, SQL) in the activity log (^4.0)."
+        "spatie/laravel-activitylog": "Auto-record DbLens write operations (CRUD, DDL, truncate, SQL) in the activity log (^4.0).",
+        "stancl/tenancy": "Multi-tenant support — DbLens auto-detects the current tenant and browses its database (^3.0)."
     },
     "scripts": {
         "test": "vendor/bin/pest"
@@ -47,6 +48,6 @@
             }
         }
     },
-    "minimum-stability": "dev",
+    "minimum-stability": "stable",
     "prefer-stable": true
 }

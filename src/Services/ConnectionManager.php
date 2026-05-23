@@ -9,6 +9,7 @@ use MahmoudMhamed\DbLens\Support\Drivers\DriverInterface;
 use MahmoudMhamed\DbLens\Support\Drivers\MySqlDriver;
 use MahmoudMhamed\DbLens\Support\Drivers\PgsqlDriver;
 use MahmoudMhamed\DbLens\Support\Drivers\SqliteDriver;
+use MahmoudMhamed\DbLens\Support\Drivers\SqlServerDriver;
 
 class ConnectionManager
 {
@@ -60,6 +61,7 @@ class ConnectionManager
             'mysql', 'mariadb' => new MySqlDriver($conn),
             'pgsql' => new PgsqlDriver($conn),
             'sqlite' => new SqliteDriver($conn),
+            'sqlsrv' => new SqlServerDriver($conn),
             default => throw new InvalidArgumentException('DbLens: driver ['.$conn->getDriverName().'] not supported yet.'),
         };
     }

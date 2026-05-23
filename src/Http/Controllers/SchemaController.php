@@ -4,18 +4,23 @@ namespace MahmoudMhamed\DbLens\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use MahmoudMhamed\DbLens\Http\Requests\AddColumnRequest;
+use MahmoudMhamed\DbLens\Http\Requests\AddForeignKeyRequest;
+use MahmoudMhamed\DbLens\Http\Requests\AddIndexRequest;
+use MahmoudMhamed\DbLens\Http\Requests\CreateTableRequest;
+use MahmoudMhamed\DbLens\Http\Requests\ModifyColumnRequest;
+use MahmoudMhamed\DbLens\Http\Requests\RenameColumnRequest;
+use MahmoudMhamed\DbLens\Http\Requests\RenameTableRequest;
 use MahmoudMhamed\DbLens\Services\ConnectionManager;
 use MahmoudMhamed\DbLens\Services\SchemaInspector;
 use MahmoudMhamed\DbLens\Services\TableEditor;
+use MahmoudMhamed\DbLens\Support\Concerns\AssertsWritable;
 
 class SchemaController extends Controller
 {
-    protected function assertWritable(): void
-    {
-        if (config('dblens.read_only', false)) {
-            abort(403, 'DbLens is in read-only mode.');
-        }
-    }
+    use AssertsWritable;
+
+    protected bool $writableFailsWith403 = true;
 
     protected function confirmed(Request $request): void
     {
@@ -38,54 +43,38 @@ class SchemaController extends Controller
 
     // ─── columns ────────────────────────────────────────────────────────────
 
-    public function addColumn(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
+    public function addColumn(string $connection, string $table, AddColumnRequest $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
 
-        $name = trim((string) $request->input('name'));
-        $type = trim((string) $request->input('type'));
-        if ($name === '' || $type === '') {
-            return $this->backWithError(new \RuntimeException('Name and type are required.'));
-        }
+        $name = (string) $request->input('name');
         try {
-            $editor->addColumn($connection, $table, $name, [
-                'type' => $type,
-                'nullable' => $request->boolean('nullable'),
-                'default' => $request->input('default'),
-                'after' => $request->input('after'),
-                'comment' => $request->input('comment'),
-            ]);
+            $editor->addColumn($connection, $table, $name, $request->columnDefinition());
         } catch (\Throwable $e) { return $this->backWithError($e); }
 
         return $this->backToStructure($connection, $table, "Column [{$name}] added.");
     }
 
-    public function modifyColumn(string $connection, string $table, string $column, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
+    public function modifyColumn(string $connection, string $table, string $column, ModifyColumnRequest $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
         try {
-            $editor->modifyColumn($connection, $table, $column, [
-                'type' => trim((string) $request->input('type')),
-                'nullable' => $request->boolean('nullable'),
-                'default' => $request->input('default'),
-                'comment' => $request->input('comment'),
-            ]);
+            $editor->modifyColumn($connection, $table, $column, $request->columnDefinition());
         } catch (\Throwable $e) { return $this->backWithError($e); }
 
         return $this->backToStructure($connection, $table, "Column [{$column}] modified.");
     }
 
-    public function renameColumn(string $connection, string $table, string $column, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
+    public function renameColumn(string $connection, string $table, string $column, RenameColumnRequest $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
-        $to = trim((string) $request->input('to'));
-        if ($to === '') return $this->backWithError(new \RuntimeException('New name is required.'));
+        $to = (string) $request->input('to');
         try {
             $editor->renameColumn($connection, $table, $column, $to);
         } catch (\Throwable $e) { return $this->backWithError($e); }
@@ -106,16 +95,13 @@ class SchemaController extends Controller
 
     // ─── indexes ────────────────────────────────────────────────────────────
 
-    public function addIndex(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
+    public function addIndex(string $connection, string $table, AddIndexRequest $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
-        $name = trim((string) $request->input('name'));
-        $columns = array_filter(array_map('trim', (array) $request->input('columns', [])));
-        if ($name === '' || empty($columns)) {
-            return $this->backWithError(new \RuntimeException('Name and at least one column are required.'));
-        }
+        $name = (string) $request->input('name');
+        $columns = (array) $request->input('columns');
         try {
             $editor->addIndex($connection, $table, $name, $columns, $request->boolean('unique'));
         } catch (\Throwable $e) { return $this->backWithError($e); }
@@ -136,22 +122,18 @@ class SchemaController extends Controller
 
     // ─── foreign keys ──────────────────────────────────────────────────────
 
-    public function addForeignKey(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
+    public function addForeignKey(string $connection, string $table, AddForeignKeyRequest $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
 
-        $name = trim((string) $request->input('name'));
-        $column = trim((string) $request->input('column'));
-        $refTable = trim((string) $request->input('foreign_table'));
-        $refColumn = trim((string) $request->input('foreign_column'));
-        if ($name === '' || $column === '' || $refTable === '' || $refColumn === '') {
-            return $this->backWithError(new \RuntimeException('All foreign-key fields are required.'));
-        }
-        $allowedActions = ['CASCADE', 'SET NULL', 'NO ACTION', 'RESTRICT'];
-        $onUpdate = in_array($request->input('on_update'), $allowedActions, true) ? $request->input('on_update') : null;
-        $onDelete = in_array($request->input('on_delete'), $allowedActions, true) ? $request->input('on_delete') : null;
+        $name = (string) $request->input('name');
+        $column = (string) $request->input('column');
+        $refTable = (string) $request->input('foreign_table');
+        $refColumn = (string) $request->input('foreign_column');
+        $onUpdate = $request->input('on_update') ?: null;
+        $onDelete = $request->input('on_delete') ?: null;
 
         try {
             $editor->addForeignKey($connection, $table, $name, $column, $refTable, $refColumn, $onUpdate, $onDelete);
@@ -189,13 +171,12 @@ class SchemaController extends Controller
             ->with('dblens.success', "Table [{$table}] dropped.");
     }
 
-    public function renameTable(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
+    public function renameTable(string $connection, string $table, RenameTableRequest $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
-        $to = trim((string) $request->input('to'));
-        if ($to === '') return $this->backWithError(new \RuntimeException('New name is required.'));
+        $to = (string) $request->input('to');
         try {
             $editor->rename($connection, $table, $to);
         } catch (\Throwable $e) { return $this->backWithError($e); }
@@ -216,27 +197,13 @@ class SchemaController extends Controller
         ]);
     }
 
-    public function createTable(string $connection, Request $request, ConnectionManager $cm, TableEditor $editor)
+    public function createTable(string $connection, CreateTableRequest $request, ConnectionManager $cm, TableEditor $editor)
     {
         $this->assertWritable();
         $cm->assertAllowed($connection);
-        $name = trim((string) $request->input('name'));
-        if ($name === '') return back()->withInput()->with('dblens.error', 'Table name is required.');
+        $name = (string) $request->input('name');
 
-        $cols = [];
-        foreach ((array) $request->input('columns', []) as $c) {
-            $cn = trim((string) ($c['name'] ?? ''));
-            $ct = trim((string) ($c['type'] ?? ''));
-            if ($cn === '' || $ct === '') continue;
-            $cols[] = [
-                'name' => $cn,
-                'type' => $ct,
-                'nullable' => ! empty($c['nullable']),
-                'default' => $c['default'] ?? null,
-                'primary' => ! empty($c['primary']),
-                'auto_increment' => ! empty($c['auto_increment']),
-            ];
-        }
+        $cols = $request->columnDefinitions();
         if (empty($cols)) {
             return back()->withInput()->with('dblens.error', 'At least one column is required.');
         }

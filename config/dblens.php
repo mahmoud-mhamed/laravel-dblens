@@ -39,8 +39,8 @@ return [
     | allow_import     — upload SQL / CSV files
     |
     */
-    'allow_truncate' => env('DBLENS_ALLOW_TRUNCATE', true),
-    'allow_drop_table' => env('DBLENS_ALLOW_DROP_TABLE', true),
+    'allow_truncate' => env('DBLENS_ALLOW_TRUNCATE', false),
+    'allow_drop_table' => env('DBLENS_ALLOW_DROP_TABLE', false),
     'allow_export' => env('DBLENS_ALLOW_EXPORT', true),
     'allow_import' => env('DBLENS_ALLOW_IMPORT', true),
 
@@ -145,6 +145,48 @@ return [
         // there's no WHERE clause, use the cheap approximate count instead of
         // running COUNT(*). Set to 0 to always use exact COUNT(*).
         'approx_count_threshold' => 100000,
+        // Foreign-key picker (row.fk.options endpoint).
+        'fk_options_limit' => 100,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Import limits
+    |--------------------------------------------------------------------------
+    */
+    'import' => [
+        // Hard cap on uploaded SQL dump size. 0 disables the cap.
+        'max_sql_bytes' => 50 * 1024 * 1024,
+        // CSV import batch size.
+        'csv_batch_size' => 200,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Global search (cross-table LIKE)
+    |--------------------------------------------------------------------------
+    */
+    'global_search' => [
+        // Skip tables beyond this count to keep the page responsive on big
+        // schemas. 0 = no limit.
+        'max_tables' => 100,
+        // Per-table query timeout in milliseconds (driver-specific; MySQL uses
+        // MAX_EXECUTION_TIME, PostgreSQL uses SET LOCAL statement_timeout).
+        'statement_timeout_ms' => 2000,
+        // How many sample rows to return per matched table.
+        'per_table_limit' => 5,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Schema cache
+    |--------------------------------------------------------------------------
+    | SchemaInspector caches column/index/FK lookups in memory for the life
+    | of the request. ttl_seconds (>0) additionally bounds an entry's age in
+    | long-running workers (e.g. Octane).
+    */
+    'schema_cache' => [
+        'ttl_seconds' => 60,
     ],
 
     /*
@@ -156,6 +198,22 @@ return [
     'er' => [
         'storage_disk' => null, // null → filesystems.default
         'storage_path' => 'dblens',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Multi-tenancy (stancl/tenancy)
+    |--------------------------------------------------------------------------
+    | When stancl/tenancy is installed and a tenant is initialized for the
+    | current request (typically via the domain identification middleware),
+    | DbLens automatically uses the `tenant` DB connection and shows a pill in
+    | the topbar with the tenant id/domain. Register DbLens routes inside the
+    | tenant route group (routes/tenant.php in stancl's docs) so they run in
+    | tenant context.
+    */
+    'tenancy' => [
+        'enabled' => env('DBLENS_TENANCY', 'auto'),
+        'connection_name' => 'tenant',
     ],
 
     /*
@@ -193,6 +251,19 @@ return [
             'sql_executed' => false,
             'import_*' => false,
             'export_*' => false,
+        ],
+        // Structured enrichment sections layered onto each entry's
+        // `properties` JSON. Same shape as the sibling
+        // `mahmoud-mhamed/spatie-activitylog-browse` package so logs can be
+        // browsed/filtered identically. Toggle individual sections off to
+        // eliminate their per-event collection overhead.
+        'enrich' => [
+            'request_data' => true,        // URL, method, route, previous URL
+            'device_data' => true,         // IP, user agent, referrer
+            'performance_data' => true,    // duration_ms, peak memory, query count
+            'app_data' => true,            // environment, php version, hostname
+            'session_data' => true,        // auth guard, authenticated flag
+            'execution_context' => true,   // web/console/queue/schedule
         ],
     ],
 

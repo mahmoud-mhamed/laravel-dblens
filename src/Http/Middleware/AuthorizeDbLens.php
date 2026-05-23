@@ -28,16 +28,14 @@ class AuthorizeDbLens
             }
         }
 
-        // Optional Gate ability
+        // Optional Gate ability — no environment bypass. Override the gate
+        // (or set `dblens.gate` to null) to grant access on top of what the
+        // default `viewDbLens` ability returns.
         $ability = config('dblens.gate');
         if ($ability) {
-            if (Gate::check($ability, [$request->user()])) {
-                return $next($request);
+            if (! Gate::check($ability, [$request->user()])) {
+                abort(403, 'DbLens: not authorized.');
             }
-            if (app()->environment('local') && config('dblens.enable_local', true)) {
-                return $next($request);
-            }
-            abort(403, 'DbLens: not authorized.');
         }
 
         return $next($request);

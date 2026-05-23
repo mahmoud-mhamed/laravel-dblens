@@ -4,16 +4,44 @@ namespace MahmoudMhamed\DbLens\Services;
 
 class SchemaInspector
 {
+    /** @var array<string,array{value:mixed,expires_at:int}> */
     protected array $cache = [];
 
     public function __construct(protected ConnectionManager $cm) {}
 
     protected function remember(string $key, \Closure $cb)
     {
-        if (! array_key_exists($key, $this->cache)) {
-            $this->cache[$key] = $cb();
+        $ttl = (int) config('dblens.schema_cache.ttl_seconds', 60);
+        $now = time();
+        if (isset($this->cache[$key])) {
+            $entry = $this->cache[$key];
+            if ($ttl <= 0 || $entry['expires_at'] > $now) {
+                return $entry['value'];
+            }
         }
-        return $this->cache[$key];
+        $value = $cb();
+        $this->cache[$key] = [
+            'value' => $value,
+            'expires_at' => $ttl > 0 ? $now + $ttl : PHP_INT_MAX,
+        ];
+        return $value;
+    }
+
+    /**
+     * Drop all cached schema lookups. Call after DDL so the next read sees
+     * the new structure.
+     */
+    public function flush(?string $connection = null): void
+    {
+        if ($connection === null) {
+            $this->cache = [];
+            return;
+        }
+        foreach (array_keys($this->cache) as $key) {
+            if (str_contains($key, ":{$connection}:") || str_ends_with($key, ":{$connection}")) {
+                unset($this->cache[$key]);
+            }
+        }
     }
 
     public function tables(string $connection): array

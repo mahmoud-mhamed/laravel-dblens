@@ -12,6 +12,14 @@ interface DriverInterface
 
     public function quoteIdentifier(string $ident): string;
 
+    /**
+     * Wrap a (typically already-quoted) expression in a CAST to a textual
+     * type, so it can be compared with LIKE regardless of the column's real
+     * type. Implementations vary per database — MySQL uses CHAR, Postgres
+     * uses TEXT, SQLite uses TEXT.
+     */
+    public function castToText(string $expression): string;
+
     /** @return array<int,array{name:string,rows:int,size:int,engine:?string,collation:?string,comment:?string}> */
     public function tables(): array;
 

@@ -14,9 +14,14 @@ use MahmoudMhamed\DbLens\Http\Controllers\SchemaController;
 use MahmoudMhamed\DbLens\Http\Controllers\SqlController;
 use MahmoudMhamed\DbLens\Http\Controllers\TableController;
 
+// Connection slug pattern — keep URLs safe against path traversal / odd chars.
+Route::pattern('connection', '[A-Za-z0-9_\-]+');
+
 // Auth
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
-Route::post('/login', [AuthController::class, 'authenticate'])->name('login.submit');
+Route::post('/login', [AuthController::class, 'authenticate'])
+    ->middleware('throttle:5,1')
+    ->name('login.submit');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 Route::get('/', [DashboardController::class, 'index'])->name('dashboard');

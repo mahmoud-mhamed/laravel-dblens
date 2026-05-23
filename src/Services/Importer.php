@@ -2,24 +2,26 @@
 
 namespace MahmoudMhamed\DbLens\Services;
 
+use MahmoudMhamed\DbLens\Support\Concerns\AssertsWritable;
 use RuntimeException;
 use SplFileObject;
 
 class Importer
 {
+    use AssertsWritable;
+
     public function __construct(protected ConnectionManager $cm, protected SchemaInspector $schema) {}
 
-    protected function assertWritable(): void
-    {
-        if (config('dblens.read_only', false)) {
-            throw new RuntimeException('DbLens is in read-only mode.');
-        }
-    }
-
     /**
-     * Execute an uploaded SQL dump file. Statements are split on `;` at the end
-     * of a line; strings/comments are respected to avoid splitting inside them.
-     * Wrapped in a transaction.
+     * Execute an uploaded SQL dump file. Statements are split on `;` at the
+     * end of a line; strings/comments are respected to avoid splitting
+     * inside them.
+     *
+     * Note: on MySQL/MariaDB any DDL statement causes an implicit commit,
+     * so wrapping the whole dump in one transaction would not actually roll
+     * back DDL on failure. We run statements without an outer transaction
+     * and report how many succeeded — rolling back partial DDL is the
+     * user's responsibility, the same as `mysql < dump.sql`.
      *
      * @return array{statements:int,executed:int}
      */
@@ -28,24 +30,46 @@ class Importer
         $this->assertWritable();
         $conn = $this->cm->connection($connection);
 
+        $maxBytes = (int) config('dblens.import.max_sql_bytes', 50 * 1024 * 1024);
+        if ($maxBytes > 0 && @filesize($path) > $maxBytes) {
+            $mb = (int) round($maxBytes / (1024 * 1024));
+            throw new RuntimeException("SQL file exceeds the {$mb} MB import limit (configure dblens.import.max_sql_bytes to change).");
+        }
+
         $statements = $this->splitStatements(file_get_contents($path) ?: '');
         $count = count($statements);
         $executed = 0;
 
-        $conn->beginTransaction();
+        $hasDdl = $this->containsDdl($statements);
+        $useTransaction = ! $hasDdl;
+
+        if ($useTransaction) $conn->beginTransaction();
         try {
             foreach ($statements as $sql) {
                 if (trim($sql) === '') continue;
                 $conn->statement($sql);
                 $executed++;
             }
-            $conn->commit();
+            if ($useTransaction) $conn->commit();
         } catch (\Throwable $e) {
-            $conn->rollBack();
+            if ($useTransaction) {
+                try { $conn->rollBack(); } catch (\Throwable $ignore) {}
+            }
             throw $e;
         }
 
         return ['statements' => $count, 'executed' => $executed];
+    }
+
+    /** @param array<int,string> $statements */
+    protected function containsDdl(array $statements): bool
+    {
+        foreach ($statements as $sql) {
+            if (preg_match('/^\s*(CREATE|ALTER|DROP|TRUNCATE|RENAME)\b/i', $sql)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -104,7 +128,7 @@ class Importer
         $inserted = 0;
         $batch = [];
         $bindings = [];
-        $batchSize = 200;
+        $batchSize = max(1, (int) config('dblens.import.csv_batch_size', 200));
         $conn = $driver->connection();
 
         // Build header-index lookup for fast column extraction

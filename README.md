@@ -16,16 +16,19 @@ A phpMyAdmin-style database browser & manager for Laravel — built with Blade, 
 - 🔍 **Per-table search** plus optional **per-column inline filters** in the header row
 - 🌐 **Global cross-table search** — finds a term in every text column of every table
 - 🔗 **Clickable foreign keys** — clicking an FK cell jumps to the referenced row
-- 👁️ **Hover preview popover** — see full untruncated row data without leaving the list
-- 🌳 **Tree view** for self-referential tables (parent_id → id) with expand/collapse
+- 👁️ **Click-to-open row preview** — full row data with column/value search and "not-null only" toggle, no page navigation
+- 🌳 **Tree view** for self-referential tables (parent_id → id) — expandable hierarchy with per-node child search, jump-to-row, browse-children buttons
+- 🪶 **Soft-delete aware** — rows with non-null `deleted_at` highlighted in red across browse and tree; one-click "Not deleted" filter; soft-delete option in the delete confirm; ↩ restore button
+- 📦 **JSON columns** detected at type and value level — opened in a full modal editor with pretty-print, minify, live validation, auto-minify on save
 - ↕️ Column sort, server-side pagination, configurable per-page
 - ⚡ **Approximate row count** on huge tables — uses engine stats instead of `COUNT(*)` (threshold configurable)
 - 🙈 Mask sensitive columns (`password`, `remember_token`, …) by name
 
 ### Row CRUD
 - ✏️ Insert / edit / delete rows (icon-only action column)
-- ⚡ **Inline cell editor** — double-click any cell; auto-picks the right input (FK lookup, enum, bool, json textarea, date, number, text)
-- 🧠 **Smart cell content viewer** on the row page — collapsible JSON tree, image preview (URL or base64), Markdown, XML
+- ⚡ **Inline cell editor** — double-click any cell; auto-picks the right input (FK lookup, enum, bool, JSON modal, date, number, text). `∅` button to set NULL on nullable columns
+- 🧠 **Smart cell content viewer** on the row page — collapsible JSON tree, image preview (URL/base64), Markdown, XML, URL detection
+- 🔁 **Related rows panel** on the row page — for every incoming FK, fetches the actual related rows (configurable preview limit) with one-click navigation
 - 📋 Auto-generated forms from column metadata
 - 🗑️ Bulk delete from the browse view (checkboxes + select-all)
 - 🛡️ Read-only mode flag disables every write path
@@ -51,10 +54,40 @@ A phpMyAdmin-style database browser & manager for Laravel — built with Blade, 
 
 ### ER diagram
 - 🗺️ Interactive zoom/pan/drag schema map with FK arrows
-- 🎯 Click any arrow to see `from.col → to.col` and the FK constraint name
-- 📌 Pin an "active" table; **related-only** mode hides everything except the active table and its FK neighbors (auto-arranged in a ring)
+- 🎯 Click any arrow to see `from.col → to.col` and the FK constraint name in a floating popup positioned over the line
+- ⭐ Click a star on any table to "activate" it; `related only` mode hides everything except active + its FK neighbors, auto-arranged in a ring and centered in view
+- 🎛️ `active only` toggle scopes arrows to the active table; `arrows` toggle for the global view
 - 💾 **Saved views** — persist a fully laid-out diagram (positions + zoom + toggles + active table) as JSON; reload in one click
+- 📑 Side panel listing all outgoing/incoming FKs for the active table — click any to jump
 - 🔍 Search with Enter / Shift+Enter to jump between matches
+
+### Multi-tenancy (stancl/tenancy)
+- 🏢 Auto-detects an initialized tenant via [stancl/tenancy](https://tenancy-docs.com) and shows a violet pill in the topbar (`🏢 acme #t-42 · acme.app.test`)
+- 🗂️ Browses the dynamic `tenant` connection naturally — no extra config when DbLens routes are registered inside the tenant route group
+- 🧠 Silently no-ops when the package isn't installed
+
+**Setup:** register DbLens routes inside the tenant context. In `routes/tenant.php`:
+
+```php
+Route::middleware([
+    \Stancl\Tenancy\Middleware\InitializeTenancyByDomain::class,
+    \Stancl\Tenancy\Middleware\PreventAccessFromCentralDomains::class,
+])->group(function () {
+    // DbLens auto-registers under /dblens for any group it's mounted in.
+    // No code needed — the package's service provider already loaded its
+    // routes against the current route() context.
+});
+```
+
+Set `DBLENS_DEFAULT_CONNECTION=tenant` (or use the `connections.default` config) so DbLens opens the tenant DB by default.
+
+### Activity log integration
+- 📜 Auto-records every write through **spatie/laravel-activitylog** (optional, auto-detected when installed)
+- 🧩 Logged events: `row_created/updated/deleted/bulk_deleted`, `cell_updated`, `schema_*` (column/index/FK/table DDL), `schema_object_dropped` (views/routines/triggers/events), `sql_executed`, `import_sql/csv`
+- 🧱 Captures pre-image (`old`) + post-image (`new`) + computed `diff` on row updates
+- 🪶 Redacts configured sensitive columns; truncates long values
+- 🔕 Granular per-event toggles + wildcard prefix matching (`row_*`, `schema_*`, etc.)
+- 🌐 Zero-config: enabled automatically when the Spatie package is installed AND its `activity_log` table exists; silently no-ops otherwise
 
 ### Export & Import
 - ⬇️ Per-table export → `SQL` (DROP + CREATE + batched INSERTs), `CSV`, or `JSON`
@@ -169,6 +202,10 @@ DBLENS_PATH=dblens
 DBLENS_DEFAULT_CONNECTION=mysql
 DBLENS_SQL_WRITES=false
 # DBLENS_PASSWORD='$2y$12$...'   # bcrypt hash recommended
+
+# Activity log (spatie/laravel-activitylog) — defaults to "auto"
+# DBLENS_LOG_ACTIVITY=auto         # true | false | auto
+# DBLENS_LOG_CONNECTION=mysql      # null → spatie default
 ```
 
 After changing any of these, clear the config cache if you cache config in production:
@@ -259,6 +296,9 @@ return [
 | `DBLENS_DEFAULT_CONNECTION` | `DB_CONNECTION` | Pre-selected connection |
 | `DBLENS_SQL_WRITES` | `false` | Allow INSERT/UPDATE/DELETE/ALTER in the SQL editor |
 | `DBLENS_PASSWORD` | — | Dashboard password (bcrypt hash recommended). When unset, the password gate is skipped. |
+| `DBLENS_LOG_ACTIVITY` | `auto` | Activity log integration: `true` / `false` / `auto` (auto-enable when spatie/laravel-activitylog is installed and its table exists) |
+| `DBLENS_LOG_CONNECTION` | — | DB connection used by activity log writes (defaults to spatie's `activitylog.database_connection`) |
+| `DBLENS_TENANCY` | `auto` | Multi-tenancy integration: `true` / `false` / `auto` (auto-detect stancl/tenancy) |
 
 ---
 

@@ -188,6 +188,11 @@ class TableController extends Controller
         }
 
         $cm->driver($connection)->dropForeignKey($table, $fk);
+        app(\MahmoudMhamed\DbLens\Services\ActivityLogger::class)->log(
+            'schema_fk_dropped',
+            "Dropped FK {$fk} from {$table}",
+            ['connection' => $connection, 'table' => $table, 'name' => $fk]
+        );
 
         return redirect()
             ->route('dblens.table.structure', ['connection' => $connection, 'table' => $table])

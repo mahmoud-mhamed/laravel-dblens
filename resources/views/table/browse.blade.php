@@ -520,9 +520,11 @@
                                                         }
                                                     @endphp
                                                     <div class="fixed inset-0 z-[120] bg-black/40 flex items-center justify-center p-4"
+                                                         x-data="{ expanded: false }"
                                                          @keydown.escape.window="cancel()"
                                                          @click.self="cancel()">
-                                                        <div class="bg-white rounded-lg shadow-2xl w-[min(720px,95vw)] max-h-[90vh] flex flex-col"
+                                                        <div class="bg-white rounded-lg shadow-2xl flex flex-col transition-all"
+                                                             :class="expanded ? 'w-[98vw] h-[95vh] max-h-[95vh]' : 'w-[min(720px,95vw)] max-h-[90vh]'"
                                                              x-data="dbLensJsonEditor()" x-init="init($refs.editor, () => value, v => value = v)">
                                                             <div class="px-4 py-2 border-b flex items-center gap-2 text-xs flex-wrap">
                                                                 <span class="text-slate-700 font-semibold">{ } JSON editor</span>
@@ -541,6 +543,10 @@
                                                                 <span class="ml-auto mono"
                                                                       :class="valid ? 'text-emerald-600' : 'text-red-600'"
                                                                       x-text="valid ? '✓ valid' : '✗ ' + error"></span>
+                                                                <button type="button" @click="expanded = !expanded"
+                                                                        class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700"
+                                                                        :title="expanded ? 'Restore' : 'Maximize'"
+                                                                        x-text="expanded ? '🗗' : '⛶'"></button>
                                                             </div>
                                                             <textarea x-ref="editor" x-model="value" :disabled="saving"
                                                                       @input="validate()"

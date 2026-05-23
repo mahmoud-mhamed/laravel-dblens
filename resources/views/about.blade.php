@@ -40,6 +40,10 @@
                 'Local enabled' => config('dblens.enable_local') ? 'YES' : 'no',
                 'Production enabled' => config('dblens.enable_production') ? 'YES' : 'no',
                 'Throttle' => config('dblens.throttle.enabled', true) ? 'on' : 'off',
+                'Activity log' => app(\MahmoudMhamed\DbLens\Services\ActivityLogger::class)->isEnabled() ? 'active' : (class_exists(\Spatie\Activitylog\Models\Activity::class) ? 'available (off)' : 'not installed'),
+                'Tenancy' => app(\MahmoudMhamed\DbLens\Services\TenancyManager::class)->isInitialized()
+                    ? 'tenant '.(app(\MahmoudMhamed\DbLens\Services\TenancyManager::class)->current()['name'] ?? app(\MahmoudMhamed\DbLens\Services\TenancyManager::class)->current()['id'])
+                    : (app(\MahmoudMhamed\DbLens\Services\TenancyManager::class)->isAvailable() ? 'available (central)' : 'not installed'),
             ] as $k => $v)
                 <div class="bg-white px-4 py-3">
                     <div class="text-[10px] uppercase text-slate-400">{{ $k }}</div>
@@ -54,17 +58,23 @@
         <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">Features</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             @foreach ([
-                ['🗂', 'Table browser', 'Paginated rows with inline header filters, full-row hover preview, sort, search, and bulk delete.'],
-                ['✏️', 'Inline cell editor', 'Double-click any cell to edit in place — text, numbers, dates, enums, JSON, booleans, FK lookups.'],
+                ['🗂', 'Table browser', 'Paginated rows with per-column inline filters, row-preview popover (search + not-null toggle), sort, search, bulk delete.'],
+                ['✏️', 'Inline cell editor', 'Double-click any cell to edit in place — text, numbers, dates, enums, FK lookups, JSON modal with format/minify/validate, NULL button.'],
+                ['🪶', 'Soft-delete aware', 'Rows with `deleted_at` highlighted red across browse + tree; one-click "Not deleted" filter, soft-delete option in confirm dialog, ↩ restore button.'],
+                ['🌳', 'Tree view', 'Hierarchical view for self-referential tables with per-node child search, jump-to-row, browse-children buttons, expand/collapse all.'],
                 ['🧱', 'Schema editor', 'Add / rename / drop columns and indexes, manage foreign keys, drop or truncate tables.'],
                 ['⚡', 'SQL editor', 'Run any query with row-limit safety. EXPLAIN button for driver-aware query plans.'],
-                ['🔗', 'Smart cell viewer', 'JSON tree, image preview (URL or base64), markdown, XML — all rendered on the row page.'],
-                ['🗺️', 'ER diagram', 'Drag-to-arrange tables, click an arrow to inspect the FK, save/load custom layouts as JSON.'],
-                ['🧩', 'DB objects', 'Browse views, stored routines, triggers, and events. Drop them from the UI.'],
+                ['🔗', 'Smart cell viewer', 'JSON tree, image preview (URL/base64), markdown, XML, URL detection — all rendered on the row page.'],
+                ['🔁', 'Related rows', 'Row page shows actual related rows from each incoming FK with one-click navigation, not just counts.'],
+                ['🗺️', 'ER diagram', 'Interactive zoom/pan/drag map; click arrows for FK details; star a table to focus, related-only mode auto-arranges neighbors.'],
+                ['📁', 'Saved ER views', 'Persist a fully laid-out diagram (positions, zoom, toggles, active table) as JSON and reload in one click.'],
+                ['🧩', 'DB objects', 'Browse views, stored routines, triggers, events. Drop them from the UI.'],
+                ['📜', 'Activity log', 'Auto-records every write through spatie/laravel-activitylog when installed — row CRUD, DDL, SQL, imports. Captures old/new/diff with redaction.'],
+                ['🏢', 'Multi-tenancy', 'Auto-detects stancl/tenancy. Shows current tenant in the topbar and browses its DB transparently when routes run in tenant context.'],
                 ['📥', 'Import / export', 'Per-table CSV / JSON / SQL export and SQL/CSV import.'],
                 ['🛡', 'Permissions', 'Granular gates per action (browse, edit, ddl, drop, truncate, export, import).'],
-                ['📁', 'Saved ER views', 'Persist a fully laid-out diagram (active table, positions, toggles) and reload it in one click.'],
-                ['🎛', 'Drivers', 'First-class MySQL, PostgreSQL, and SQLite drivers with shared interface.'],
+                ['🩺', 'Friendly errors', 'Misconfigured drivers (e.g. wrong port/driver) render a clean 503 page instead of a stack trace.'],
+                ['🎛', 'Drivers', 'First-class MySQL, PostgreSQL, and SQLite drivers with a shared interface.'],
                 ['🧪', 'Tested', 'Pest + Orchestra Testbench; SQLite in-memory for unit and feature coverage.'],
             ] as $feat)
                 <div class="bg-white border border-slate-200 rounded p-4 hover:border-sky-300 hover:shadow transition">

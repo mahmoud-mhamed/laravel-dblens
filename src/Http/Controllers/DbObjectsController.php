@@ -42,6 +42,11 @@ class DbObjectsController extends Controller
             'event' => $driver->dropEvent($name),
             default => abort(404),
         };
+        app(\MahmoudMhamed\DbLens\Services\ActivityLogger::class)->log(
+            'schema_object_dropped',
+            "Dropped {$kind} {$name}",
+            ['connection' => $connection, 'kind' => $kind, 'name' => $name]
+        );
         return redirect()
             ->route('dblens.objects.index', ['connection' => $connection])
             ->with('dblens.success', strtoupper($kind)." [{$name}] dropped.");

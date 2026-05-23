@@ -58,6 +58,13 @@ class DbLensInstallCommand extends Command
         $readOnly = config('dblens.read_only', false);
         $this->line(sprintf('   <fg=%s>•</> read_only mode: %s', $readOnly ? 'yellow' : 'gray', $readOnly ? 'ON' : 'off'));
 
+        $tenancy = $this->laravel->make(\MahmoudMhamed\DbLens\Services\TenancyManager::class);
+        if ($tenancy->isAvailable()) {
+            $current = $tenancy->current();
+            $status = $current ? ('initialized — '.($current['name'] ?? $current['id'])) : 'installed (not initialized in CLI)';
+            $this->line("   <fg=cyan>•</> stancl/tenancy: {$status}");
+        }
+
         $logger = $this->laravel->make(\MahmoudMhamed\DbLens\Services\ActivityLogger::class);
         $cfg = config('dblens.activity_log.enabled', 'auto');
         $cfgLabel = $cfg === 'auto' ? 'auto' : ($cfg ? 'on' : 'off');

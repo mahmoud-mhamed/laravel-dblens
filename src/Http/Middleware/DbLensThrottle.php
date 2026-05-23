@@ -3,14 +3,19 @@
 namespace MahmoudMhamed\DbLens\Http\Middleware;
 
 use Closure;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * File-based throttle that does not depend on the user's cache driver.
+ * Cache-backed throttle for DbLens routes. Uses Laravel's built-in
+ * RateLimiter (atomic increments, automatic expiry) so we don't need a
+ * file-based store of our own.
  */
 class DbLensThrottle
 {
+    public function __construct(protected RateLimiter $limiter) {}
+
     public function handle(Request $request, Closure $next): Response
     {
         $attempts = (int) config('dblens.throttle.attempts', 120);
@@ -19,30 +24,12 @@ class DbLensThrottle
             return $next($request);
         }
 
-        $dir = storage_path('framework/cache/dblens');
-        if (! is_dir($dir)) {
-            @mkdir($dir, 0775, true);
-        }
+        $key = 'dblens|' . sha1($request->ip() . '|' . optional($request->user())->getAuthIdentifier());
 
-        $key = sha1($request->ip() . '|' . optional($request->user())->getAuthIdentifier());
-        $file = $dir . DIRECTORY_SEPARATOR . $key . '.json';
-        $now = time();
-        $window = $minutes * 60;
-
-        $data = ['start' => $now, 'count' => 0];
-        if (is_file($file)) {
-            $raw = @file_get_contents($file);
-            $decoded = $raw ? json_decode($raw, true) : null;
-            if (is_array($decoded) && ($now - (int)($decoded['start'] ?? 0)) < $window) {
-                $data = $decoded;
-            }
-        }
-        $data['count'] = (int)($data['count'] ?? 0) + 1;
-        @file_put_contents($file, json_encode($data));
-
-        if ($data['count'] > $attempts) {
+        if ($this->limiter->tooManyAttempts($key, $attempts)) {
             abort(429, 'DbLens: too many requests.');
         }
+        $this->limiter->hit($key, $minutes * 60);
 
         return $next($request);
     }

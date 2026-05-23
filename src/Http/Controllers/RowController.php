@@ -9,9 +9,14 @@ use MahmoudMhamed\DbLens\Services\ModelCastResolver;
 use MahmoudMhamed\DbLens\Services\QueryRunner;
 use MahmoudMhamed\DbLens\Services\RowEditor;
 use MahmoudMhamed\DbLens\Services\SchemaInspector;
+use MahmoudMhamed\DbLens\Support\Concerns\AssertsWritable;
 
 class RowController extends Controller
 {
+    use AssertsWritable;
+
+    protected bool $writableFailsWith403 = true;
+
     public function show(string $connection, string $table, string $rowKey, ConnectionManager $cm, SchemaInspector $schema, QueryRunner $runner)
     {
         $cm->assertAllowed($connection);
@@ -186,14 +191,26 @@ class RowController extends Controller
         $pkValues = $this->decodeRowKey($rowKey, $pkCols);
         if (empty($pkValues)) abort(404);
 
+        $input = (array) $request->input('row', []);
+
         try {
-            $editor->update($connection, $table, $pkValues, (array) $request->input('row', []));
+            $editor->update($connection, $table, $pkValues, $input);
         } catch (\Throwable $e) {
             return back()->withInput()->with('dblens.error', $e->getMessage());
         }
 
+        // If the user edited PK column(s), redirect to the new row key so the
+        // resulting "show" page doesn't 404 against the old key.
+        $newPkValues = [];
+        foreach ($pkCols as $col) {
+            $newPkValues[$col] = array_key_exists($col, $input) && $input[$col] !== '' && $input[$col] !== null
+                ? $input[$col]
+                : $pkValues[$col];
+        }
+        $newRowKey = $this->encodeRowKey($newPkValues);
+
         return redirect()
-            ->route('dblens.row.show', ['connection' => $connection, 'table' => $table, 'rowKey' => $rowKey])
+            ->route('dblens.row.show', ['connection' => $connection, 'table' => $table, 'rowKey' => $newRowKey])
             ->with('dblens.success', 'Row updated.');
     }
 
@@ -334,14 +351,15 @@ class RowController extends Controller
         $sql = 'SELECT ' . implode(', ', $select) . " FROM {$qt}";
         $bindings = [];
         if ($search !== '') {
-            $sql .= " WHERE CAST({$qFc} AS CHAR) LIKE ?";
+            $sql .= ' WHERE ' . $driver->castToText($qFc) . ' LIKE ?';
             $bindings[] = "%{$search}%";
             if ($labelCol !== null && $labelCol !== $foreignCol) {
                 $sql .= " OR " . $driver->quoteIdentifier($labelCol) . ' LIKE ?';
                 $bindings[] = "%{$search}%";
             }
         }
-        $sql .= " LIMIT 100";
+        $limit = max(1, (int) config('dblens.browse.fk_options_limit', 100));
+        $sql .= " LIMIT {$limit}";
 
         try {
             $rows = $driver->connection()->select($sql, $bindings);
@@ -367,18 +385,33 @@ class RowController extends Controller
         ]);
     }
 
-    protected function assertWritable(): void
-    {
-        if (config('dblens.read_only', false)) {
-            abort(403, 'DbLens is in read-only mode.');
-        }
-    }
-
+    /**
+     * Decode a URL row key into a `[pkColumn => value]` map.
+     *
+     * Composite keys arrive JSON-encoded. We require the decoded keys to
+     * exactly match the table's primary-key columns — otherwise a request
+     * like `/r/{"email":"…"}` could be used to mutate rows by a non-PK
+     * column, bypassing the implicit PK lookup the rest of the controller
+     * assumes.
+     */
     protected function decodeRowKey(string $rowKey, array $pkCols): array
     {
+        if (empty($pkCols)) return [];
         $decoded = rawurldecode($rowKey);
         $json = json_decode($decoded, true);
-        if (is_array($json)) return $json;
+        if (is_array($json)) {
+            $expected = $pkCols;
+            $actual = array_keys($json);
+            sort($expected);
+            sort($actual);
+            if ($expected !== $actual) return [];
+            // Preserve the table's PK ordering for downstream SQL.
+            $ordered = [];
+            foreach ($pkCols as $col) {
+                $ordered[$col] = $json[$col];
+            }
+            return $ordered;
+        }
         if (count($pkCols) === 1) return [$pkCols[0] => $decoded];
         return [];
     }

@@ -1,5 +1,14 @@
 <div class="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between">
-    <div class="text-sm">
+    <div class="text-sm flex items-center gap-2 min-w-0">
+        @php $tenant = app(\MahmoudMhamed\DbLens\Services\TenancyManager::class)->current(); @endphp
+        @if ($tenant)
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-100 text-violet-800 rounded-full text-xs mono"
+                  title="Active tenant via stancl/tenancy{{ $tenant['domain'] ? ' · '.$tenant['domain'] : '' }}">
+                🏢 <span>{{ $tenant['name'] ?? $tenant['id'] }}</span>
+                <span class="text-violet-400 text-[10px]">#{{ $tenant['id'] }}</span>
+            </span>
+            <span class="text-slate-300">·</span>
+        @endif
         <a href="{{ route('dblens.database.show', ['connection' => $connection]) }}" class="text-sky-600 hover:underline">{{ $database }}</a>
         @isset($table)
             <span class="text-slate-400 mx-1">/</span>

@@ -2,17 +2,23 @@
 
 namespace MahmoudMhamed\DbLens\Services;
 
+use MahmoudMhamed\DbLens\Support\Concerns\AssertsWritable;
+use MahmoudMhamed\DbLens\Support\Sql\PkClause;
 use RuntimeException;
 
 class RowEditor
 {
-    public function __construct(protected ConnectionManager $cm, protected SchemaInspector $schema) {}
+    use AssertsWritable;
 
-    protected function assertWritable(): void
+    public function __construct(
+        protected ConnectionManager $cm,
+        protected SchemaInspector $schema,
+        protected ?ActivityLogger $logger = null,
+    ) {}
+
+    protected function logger(): ActivityLogger
     {
-        if (config('dblens.read_only', false)) {
-            throw new RuntimeException('DbLens is in read-only mode.');
-        }
+        return $this->logger ??= app(ActivityLogger::class);
     }
 
     /**
@@ -57,6 +63,27 @@ class RowEditor
         return $payload;
     }
 
+    /**
+     * SELECT the current row before mutating it, so we can record the
+     * pre-image in the activity log.  Returns null on any failure.
+     */
+    protected function fetchRow(string $connection, string $table, array $pkValues): ?array
+    {
+        if (! $this->logger()->isEnabled() || ! config('dblens.activity_log.capture_old_values', true)) {
+            return null;
+        }
+        try {
+            $driver = $this->cm->driver($connection);
+            [$where, $bindings] = PkClause::build($driver, $pkValues);
+            $sql = 'SELECT * FROM ' . $driver->quoteIdentifier($table)
+                . ' WHERE ' . $where . ' LIMIT 1';
+            $row = $driver->connection()->selectOne($sql, $bindings);
+            return $row ? (array) $row : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     public function insert(string $connection, string $table, array $input): array
     {
         $this->assertWritable();
@@ -83,6 +110,14 @@ class RowEditor
                 if (array_key_exists($c, $payload)) $pkValues[$c] = $payload[$c];
             }
         }
+
+        $this->logger()->log('row_created', "Inserted row into {$table}", [
+            'connection' => $connection,
+            'table' => $table,
+            'pk' => $pkValues,
+            'attributes' => $payload,
+        ]);
+
         return $pkValues;
     }
 
@@ -105,21 +140,44 @@ class RowEditor
             return 0;
         }
 
+        $oldRow = $this->fetchRow($connection, $table, $pkValues);
+
         $sets = [];
         $bindings = [];
         foreach ($payload as $col => $val) {
             $sets[] = $driver->quoteIdentifier($col) . ' = ?';
             $bindings[] = $val;
         }
-        $where = [];
-        foreach ($pkValues as $col => $val) {
-            $where[] = $driver->quoteIdentifier($col) . ' = ?';
-            $bindings[] = $val;
-        }
+        [$whereSql, $pkBindings] = PkClause::build($driver, $pkValues);
         $sql = 'UPDATE ' . $driver->quoteIdentifier($table)
             . ' SET ' . implode(', ', $sets)
-            . ' WHERE ' . implode(' AND ', $where);
-        return $driver->connection()->update($sql, $bindings);
+            . ' WHERE ' . $whereSql;
+        $affected = $driver->connection()->update($sql, array_merge($bindings, $pkBindings));
+
+        if ($affected > 0) {
+            // Spatie convention: only the columns that actually changed end up
+            // in the log, mirrored across `attributes` (new) and `old`.
+            $changedNew = [];
+            $changedOld = [];
+            foreach ($payload as $col => $newVal) {
+                $oldVal = $oldRow[$col] ?? null;
+                if ((string) $oldVal !== (string) $newVal) {
+                    $changedNew[$col] = $newVal;
+                    $changedOld[$col] = $oldVal;
+                }
+            }
+            if (! empty($changedNew)) {
+                $this->logger()->log('row_updated', "Updated row in {$table}", [
+                    'connection' => $connection,
+                    'table' => $table,
+                    'pk' => $pkValues,
+                    'attributes' => $changedNew,
+                    'old' => $changedOld,
+                    'affected' => $affected,
+                ]);
+            }
+        }
+        return $affected;
     }
 
     public function delete(string $connection, string $table, array $pkValues): int
@@ -127,15 +185,24 @@ class RowEditor
         $this->assertWritable();
         if (empty($pkValues)) throw new RuntimeException('Cannot delete: no primary key.');
         $driver = $this->cm->driver($connection);
-        $where = [];
-        $bindings = [];
-        foreach ($pkValues as $col => $val) {
-            $where[] = $driver->quoteIdentifier($col) . ' = ?';
-            $bindings[] = $val;
-        }
+
+        $oldRow = $this->fetchRow($connection, $table, $pkValues);
+
+        [$where, $bindings] = PkClause::build($driver, $pkValues);
         $sql = 'DELETE FROM ' . $driver->quoteIdentifier($table)
-            . ' WHERE ' . implode(' AND ', $where);
-        return $driver->connection()->delete($sql, $bindings);
+            . ' WHERE ' . $where;
+        $affected = $driver->connection()->delete($sql, $bindings);
+
+        if ($affected > 0) {
+            $this->logger()->log('row_deleted', "Deleted row from {$table}", [
+                'connection' => $connection,
+                'table' => $table,
+                'pk' => $pkValues,
+                'old' => $oldRow,
+                'affected' => $affected,
+            ]);
+        }
+        return $affected;
     }
 
     /**
@@ -158,6 +225,17 @@ class RowEditor
             $driver->connection()->rollBack();
             throw $e;
         }
+
+        // Single aggregate entry alongside the per-row entries already logged
+        // by ::delete() — useful for "bulk operation" auditing without losing
+        // detail.
+        $this->logger()->log('row_bulk_deleted', "Bulk-deleted {$deleted} row(s) from {$table}", [
+            'connection' => $connection,
+            'table' => $table,
+            'count' => $deleted,
+            'pk_sample' => array_slice($pkSets, 0, 10),
+        ]);
+
         return $deleted;
     }
 }

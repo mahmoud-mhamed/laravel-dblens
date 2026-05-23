@@ -4,11 +4,14 @@ namespace MahmoudMhamed\DbLens;
 
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use MahmoudMhamed\DbLens\Console\Commands\DbLensActivityLogInstallCommand;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensInstallCommand;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensMakeMigrationCommand;
 use MahmoudMhamed\DbLens\Http\Middleware\AuthorizeDbLens;
 use MahmoudMhamed\DbLens\Http\Middleware\DbLensThrottle;
+use MahmoudMhamed\DbLens\Services\ActivityContext;
 use MahmoudMhamed\DbLens\Services\ActivityLogger;
+use MahmoudMhamed\DbLens\Services\TenancyManager;
 use MahmoudMhamed\DbLens\Services\ConnectionManager;
 use MahmoudMhamed\DbLens\Services\QueryRunner;
 use MahmoudMhamed\DbLens\Services\RowEditor;
@@ -29,12 +32,18 @@ class DbLensServiceProvider extends ServiceProvider
         $this->app->singleton(SchemaInspector::class, fn ($app) => new SchemaInspector($app->make(ConnectionManager::class)));
         $this->app->singleton(QueryRunner::class, fn ($app) => new QueryRunner($app->make(ConnectionManager::class)));
         $this->app->singleton(RowEditor::class, fn ($app) => new RowEditor($app->make(ConnectionManager::class), $app->make(SchemaInspector::class)));
-        $this->app->singleton(TableEditor::class, fn ($app) => new TableEditor($app->make(ConnectionManager::class)));
+        $this->app->singleton(TableEditor::class, fn ($app) => new TableEditor(
+            $app->make(ConnectionManager::class),
+            $app->make(ActivityLogger::class),
+            $app->make(SchemaInspector::class),
+        ));
         $this->app->singleton(Exporter::class, fn ($app) => new Exporter($app->make(ConnectionManager::class), $app->make(SchemaInspector::class)));
         $this->app->singleton(Importer::class, fn ($app) => new Importer($app->make(ConnectionManager::class), $app->make(SchemaInspector::class)));
         $this->app->singleton(ModelCastResolver::class, fn () => new ModelCastResolver());
         $this->app->singleton(ErViewStorage::class, fn () => new ErViewStorage());
-        $this->app->singleton(ActivityLogger::class, fn () => new ActivityLogger());
+        $this->app->singleton(ActivityContext::class, fn () => new ActivityContext());
+        $this->app->singleton(ActivityLogger::class, fn ($app) => new ActivityLogger($app->make(ActivityContext::class)));
+        $this->app->singleton(TenancyManager::class, fn () => new TenancyManager());
     }
 
     public function boot(): void
@@ -49,6 +58,10 @@ class DbLensServiceProvider extends ServiceProvider
 
         $this->loadViewsFrom(__DIR__ . '/../resources/views', 'dblens');
 
+        if (config('dblens.activity_log.enrich.performance_data', true)) {
+            $this->app->make(ActivityContext::class)->startCollecting();
+        }
+
         $this->registerDefaultGate();
 
         if ($this->isEnabledForEnvironment() && config('dblens.viewer.enabled', true)) {
@@ -60,6 +73,7 @@ class DbLensServiceProvider extends ServiceProvider
             $this->commands([
                 DbLensInstallCommand::class,
                 DbLensMakeMigrationCommand::class,
+                DbLensActivityLogInstallCommand::class,
             ]);
         }
     }

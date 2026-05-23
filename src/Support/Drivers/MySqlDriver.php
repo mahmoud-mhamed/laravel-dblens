@@ -17,6 +17,11 @@ class MySqlDriver implements DriverInterface
         return '`' . str_replace('`', '``', $ident) . '`';
     }
 
+    public function castToText(string $expression): string
+    {
+        return "CAST({$expression} AS CHAR)";
+    }
+
     protected function db(): string { return (string) $this->conn->getDatabaseName(); }
 
     public function tables(): array
@@ -198,7 +203,43 @@ class MySqlDriver implements DriverInterface
 
     public function renameColumn(string $table, string $from, string $to): void
     {
-        $this->conn->statement("ALTER TABLE {$this->quoteIdentifier($table)} RENAME COLUMN {$this->quoteIdentifier($from)} TO {$this->quoteIdentifier($to)}");
+        // `ALTER … RENAME COLUMN` only exists on MySQL 8.0+. On older
+        // versions (and any branded MariaDB) we fall back to `CHANGE COLUMN`,
+        // which requires re-stating the column's full definition.
+        if ($this->supportsRenameColumn()) {
+            $this->conn->statement("ALTER TABLE {$this->quoteIdentifier($table)} RENAME COLUMN {$this->quoteIdentifier($from)} TO {$this->quoteIdentifier($to)}");
+            return;
+        }
+        $cols = $this->columns($table);
+        $def = null;
+        foreach ($cols as $c) {
+            if ($c['name'] === $from) { $def = $c; break; }
+        }
+        if ($def === null) {
+            throw new \RuntimeException("Column [{$from}] not found on [{$table}].");
+        }
+        $spec = $this->columnSpec([
+            'type' => $def['type'],
+            'nullable' => $def['nullable'],
+            'default' => $def['default'],
+            'comment' => $def['comment'],
+        ]);
+        $this->conn->statement("ALTER TABLE {$this->quoteIdentifier($table)} CHANGE COLUMN {$this->quoteIdentifier($from)} {$this->quoteIdentifier($to)} {$spec}");
+    }
+
+    protected function supportsRenameColumn(): bool
+    {
+        try {
+            $r = $this->conn->selectOne('SELECT VERSION() as v');
+            $v = (string) ($r->v ?? '');
+        } catch (\Throwable $e) {
+            return true; // assume modern server on any error
+        }
+        // MariaDB also supports RENAME COLUMN, since 10.5.2.
+        if (stripos($v, 'mariadb') !== false) {
+            return version_compare(preg_replace('/[^\d.].*$/', '', $v), '10.5.2', '>=');
+        }
+        return version_compare(preg_replace('/[^\d.].*$/', '', $v), '8.0.0', '>=');
     }
 
     public function dropColumn(string $table, string $column): void

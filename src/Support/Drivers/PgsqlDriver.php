@@ -17,6 +17,11 @@ class PgsqlDriver implements DriverInterface
         return '"' . str_replace('"', '""', $ident) . '"';
     }
 
+    public function castToText(string $expression): string
+    {
+        return "({$expression})::text";
+    }
+
     protected function schema(): string
     {
         $cfg = $this->conn->getConfig('search_path') ?: $this->conn->getConfig('schema') ?: 'public';

@@ -17,6 +17,11 @@ class SqliteDriver implements DriverInterface
         return '"' . str_replace('"', '""', $ident) . '"';
     }
 
+    public function castToText(string $expression): string
+    {
+        return "CAST({$expression} AS TEXT)";
+    }
+
     public function tables(): array
     {
         $rows = $this->conn->select("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");

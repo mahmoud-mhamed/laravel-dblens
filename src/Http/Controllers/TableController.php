@@ -37,6 +37,7 @@ class TableController extends Controller
             'rows' => $result['rows'],
             'paginator' => $result['paginator'],
             'total' => $result['total'],
+            'approximate' => $result['approximate'] ?? false,
             'sql' => $result['sql'],
             'search' => (string) $request->query('search', ''),
             'filters' => (array) $request->query('filters', []),

@@ -38,6 +38,12 @@ interface DriverInterface
     /** @return array<int,string> column names that form the primary key */
     public function primaryKey(string $table): array;
 
+    /**
+     * Fast, possibly approximate row count from the engine's statistics.
+     * Returns null if no estimate is available — caller should fall back to COUNT(*).
+     */
+    public function approximateRowCount(string $table): ?int;
+
     public function dropForeignKey(string $table, string $fkName): void;
 
     /** @param array{type:string,nullable:bool,default:?string,after:?string,comment:?string} $def */
@@ -72,4 +78,17 @@ interface DriverInterface
      * Return the DDL CREATE TABLE statement, or null if not supported.
      */
     public function createTableSql(string $table): ?string;
+
+    /**
+     * Bulk: every column of every table in one query.
+     * @return array<string,array<int,array{name:string,type:string,nullable:bool,key:?string}>>
+     *         table_name => [columns…]
+     */
+    public function allColumns(): array;
+
+    /**
+     * Bulk: every outgoing FK in the schema in one query.
+     * @return array<int,array{table:string,name:string,column:string,foreign_table:string,foreign_column:string}>
+     */
+    public function allForeignKeys(): array;
 }

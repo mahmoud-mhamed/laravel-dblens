@@ -186,6 +186,20 @@ class PgsqlDriver implements DriverInterface
         return array_map(fn ($r) => (string) $r->name, $rows);
     }
 
+    public function approximateRowCount(string $table): ?int
+    {
+        $r = $this->conn->selectOne(
+            "SELECT c.reltuples::bigint as c
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = ? AND c.relname = ?",
+            [$this->schema(), $table]
+        );
+        if (! $r || $r->c === null) return null;
+        $est = (int) $r->c;
+        // -1 means "never analyzed" — treat as unknown.
+        return $est < 0 ? null : $est;
+    }
+
     public function dropForeignKey(string $table, string $fkName): void
     {
         $t = $this->quoteIdentifier($table);
@@ -277,6 +291,37 @@ class PgsqlDriver implements DriverInterface
     public function renameTable(string $from, string $to): void
     {
         $this->conn->statement("ALTER TABLE {$this->quoteIdentifier($from)} RENAME TO {$this->quoteIdentifier($to)}");
+    }
+
+    public function allColumns(): array
+    {
+        $out = [];
+        foreach ($this->tables() as $t) {
+            $out[$t['name']] = array_map(fn ($c) => [
+                'name' => $c['name'],
+                'type' => $c['type'],
+                'nullable' => $c['nullable'],
+                'key' => $c['key'],
+            ], $this->columns($t['name']));
+        }
+        return $out;
+    }
+
+    public function allForeignKeys(): array
+    {
+        $out = [];
+        foreach ($this->tables() as $t) {
+            foreach ($this->foreignKeys($t['name']) as $fk) {
+                $out[] = [
+                    'table' => $t['name'],
+                    'name' => $fk['name'],
+                    'column' => $fk['column'],
+                    'foreign_table' => $fk['foreign_table'],
+                    'foreign_column' => $fk['foreign_column'],
+                ];
+            }
+        }
+        return $out;
     }
 
     public function createTableSql(string $table): ?string

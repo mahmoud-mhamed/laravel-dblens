@@ -45,9 +45,10 @@
 @endunless
 
 {{-- ─── Columns ───────────────────────────────────────────────── --}}
-<div class="bg-white rounded shadow-sm border border-slate-200 mb-4">
-    <div class="px-4 py-3 border-b font-semibold flex items-center justify-between">
+<div class="bg-white rounded shadow-sm border border-slate-200 mb-4" x-data="{ q: '', matches(hay) { return this.q === '' || hay.toLowerCase().includes(this.q.toLowerCase()); } }">
+    <div class="px-4 py-3 border-b font-semibold flex items-center justify-between gap-2">
         <span>Columns</span>
+        <input type="search" x-model="q" placeholder="Search columns…" class="{{ $inputC }} w-64">
     </div>
     <table class="w-full text-sm">
         <thead class="bg-slate-50 text-slate-600 text-left">
@@ -64,7 +65,7 @@
         </thead>
         <tbody>
         @foreach ($columns as $i => $c)
-            <tr class="border-t" x-data="{ editing: false, renaming: false }">
+            <tr class="border-t" x-data="{ editing: false, renaming: false }" x-show="matches(@js($c['name'].' '.$c['type'].' '.($c['comment'] ?? '').' '.($c['key'] ?? '').' '.($c['extra'] ?? '')))">
                 <td class="px-4 py-2 text-slate-400 mono">{{ $i + 1 }}</td>
                 <td class="px-4 py-2 mono">
                     <span x-show="!renaming">

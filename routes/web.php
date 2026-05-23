@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use MahmoudMhamed\DbLens\Http\Controllers\AuthController;
 use MahmoudMhamed\DbLens\Http\Controllers\DashboardController;
 use MahmoudMhamed\DbLens\Http\Controllers\DatabaseController;
+use MahmoudMhamed\DbLens\Http\Controllers\ErController;
 use MahmoudMhamed\DbLens\Http\Controllers\ExportController;
 use MahmoudMhamed\DbLens\Http\Controllers\ImportController;
 use MahmoudMhamed\DbLens\Http\Controllers\RowController;
@@ -26,6 +27,9 @@ Route::get('/{connection}/export', [ExportController::class, 'database'])->name(
 Route::post('/{connection}/export-custom', [ExportController::class, 'custom'])->name('database.export.custom');
 Route::get('/{connection}/import', [ImportController::class, 'form'])->name('database.import.form');
 Route::post('/{connection}/import', [ImportController::class, 'importSql'])->name('database.import');
+
+// ER diagram
+Route::get('/{connection}/er', [ErController::class, 'show'])->name('er.show');
 
 // Database / connection level
 Route::get('/{connection}', [DatabaseController::class, 'show'])->name('database.show');

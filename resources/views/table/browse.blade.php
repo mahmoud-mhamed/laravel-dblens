@@ -121,7 +121,9 @@
             @if ($search !== '' || $hasFilters)
                 <a href="{{ route('dblens.table.browse', ['connection' => $connection, 'table' => $table]) }}" class="text-xs text-slate-500 hover:underline">Clear</a>
             @endif
-            <span class="text-xs text-slate-500 ml-auto">{{ number_format($total) }} row(s)</span>
+            <span class="text-xs text-slate-500 ml-auto" @if (! empty($approximate)) title="Estimated from engine statistics — exact COUNT(*) skipped for performance" @endif>
+                @if (! empty($approximate))~@endif{{ number_format($total) }} row(s)
+            </span>
             @unless ($readOnly)
                 <a href="{{ route('dblens.row.create', ['connection' => $connection, 'table' => $table]) }}"
                    class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">+ Insert</a>
@@ -293,22 +295,34 @@
                                     }
                                 @endphp
                                 <td class="px-3 py-2 mono {{ $editable ? '' : 'truncate-cell' }}"
-                                    @if ($editable) :class="editing ? 'overflow-visible relative' : 'truncate-cell'" @endif
-                                    x-show="visible('{{ $c['name'] }}')"
+                                    @if ($editable) x-data="{ primed: false }" :class="primed ? 'overflow-visible relative' : 'truncate-cell'" @endif
+                                    x-show="visible('{{ $c['name'] }}')">
                                     @if ($editable)
-                                        x-data="dbLensCell({
-                                            saveUrl: '{{ route('dblens.row.cell.update', ['connection' => $connection, 'table' => $table]) }}',
-                                            fkUrl: '{{ $fk ? route('dblens.row.fk.options', ['connection' => $connection, 'table' => $table]).'?column='.urlencode($c['name']) : '' }}',
-                                            rowKey: @js($rk),
-                                            column: @js($c['name']),
-                                            kind: @js($kind),
-                                            enumValues: @js($enumValues),
-                                            phpEnumCases: @js($phpEnumCases ?? []),
-                                            nullable: {{ $c['nullable'] ? 'true' : 'false' }},
-                                            initial: @js($val)
-                                        })"
-                                    @endif>
-                                    @if ($editable)
+                                        <div x-show="!primed" @dblclick="primed = true" class="cursor-pointer hover:bg-amber-50 -mx-1 px-1 rounded" title="Double-click to edit">
+                                            @if ($val === null || $val === '')
+                                                <span class="text-slate-400 italic">NULL</span>
+                                            @elseif ($fk)
+                                                @php $fkRowKey = rawurlencode(json_encode([$fk['foreign_column'] => $val])); @endphp
+                                                <a href="{{ route('dblens.row.show', ['connection' => $connection, 'table' => $fk['foreign_table'], 'rowKey' => $fkRowKey]) }}"
+                                                   @click.stop class="text-violet-600 hover:underline"
+                                                   title="→ {{ $fk['foreign_table'] }}.{{ $fk['foreign_column'] }}">{{ \Illuminate\Support\Str::limit((string) $val, $truncate) }}</a>
+                                            @else
+                                                {{ \Illuminate\Support\Str::limit((string) $val, $truncate) }}
+                                            @endif
+                                        </div>
+                                        <template x-if="primed">
+                                        <div x-data="dbLensCell({
+                                                saveUrl: '{{ route('dblens.row.cell.update', ['connection' => $connection, 'table' => $table]) }}',
+                                                fkUrl: '{{ $fk ? route('dblens.row.fk.options', ['connection' => $connection, 'table' => $table]).'?column='.urlencode($c['name']) : '' }}',
+                                                rowKey: @js($rk),
+                                                column: @js($c['name']),
+                                                kind: @js($kind),
+                                                enumValues: @js($enumValues),
+                                                phpEnumCases: @js($phpEnumCases ?? []),
+                                                nullable: {{ $c['nullable'] ? 'true' : 'false' }},
+                                                initial: @js($val)
+                                            })"
+                                            x-init="startEdit()">
                                         <div x-show="!editing" @dblclick="startEdit()" class="cursor-pointer hover:bg-amber-50 -mx-1 px-1 rounded" title="Double-click to edit">
                                             <span x-show="original === null || original === ''" class="text-slate-400 italic">NULL</span>
                                             @if ($fk)
@@ -404,6 +418,8 @@
                                             <button type="button" @click="cancel()" :disabled="saving" class="px-1.5 text-slate-400 hover:text-slate-600" title="Cancel (Esc)">✕</button>
                                             <span x-show="error" x-text="error" class="text-xs text-red-600 ml-1"></span>
                                         </div>
+                                        </div>
+                                        </template>
                                     @else
                                         @if ($val === null)
                                             <span class="text-slate-400 italic">NULL</span>

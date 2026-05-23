@@ -135,6 +135,10 @@ return [
         'per_page' => 30,
         'per_page_options' => [10, 30, 50, 100, 200],
         'truncate_cell' => 120,
+        // When a table has at least this many rows (per the engine's stats) and
+        // there's no WHERE clause, use the cheap approximate count instead of
+        // running COUNT(*). Set to 0 to always use exact COUNT(*).
+        'approx_count_threshold' => 100000,
     ],
 
     /*

@@ -7,7 +7,12 @@ use Illuminate\Support\Facades\Request;
 
 class QueryRunner
 {
-    public function __construct(protected ConnectionManager $cm) {}
+    public function __construct(protected ConnectionManager $cm, protected ?SchemaInspector $schema = null) {}
+
+    protected function schema(): SchemaInspector
+    {
+        return $this->schema ??= app(SchemaInspector::class);
+    }
 
     /**
      * Browse a table with optional filters/search/sort/pagination.
@@ -29,7 +34,7 @@ class QueryRunner
         $search = trim((string) ($options['search'] ?? ''));
         $filters = (array) ($options['filters'] ?? []);
 
-        $columns = $driver->columns($table);
+        $columns = $this->schema()->columns($connection, $table);
         $columnNames = array_map(fn ($c) => $c['name'], $columns);
 
         [$whereSql, $bindings] = $this->buildWhere($driver, $columns, $filters, $search);
@@ -38,14 +43,26 @@ class QueryRunner
         if ($orderBy && in_array($orderBy, $columnNames, true)) {
             $orderSql = ' ORDER BY ' . $driver->quoteIdentifier($orderBy) . ' ' . $orderDir;
         } else {
-            $pk = $driver->primaryKey($table);
+            $pk = $this->schema()->primaryKey($connection, $table);
             if (!empty($pk)) {
                 $orderSql = ' ORDER BY ' . $driver->quoteIdentifier($pk[0]) . ' ASC';
             }
         }
 
-        $totalSql = "SELECT COUNT(*) as c FROM {$qt}{$whereSql}";
-        $total = (int) ($conn->selectOne($totalSql, $bindings)->c ?? 0);
+        $total = null;
+        $approximate = false;
+        $estThreshold = (int) config('dblens.browse.approx_count_threshold', 100000);
+        if ($whereSql === '' && $estThreshold > 0) {
+            $est = $driver->approximateRowCount($table);
+            if ($est !== null && $est >= $estThreshold) {
+                $total = $est;
+                $approximate = true;
+            }
+        }
+        if ($total === null) {
+            $totalSql = "SELECT COUNT(*) as c FROM {$qt}{$whereSql}";
+            $total = (int) ($conn->selectOne($totalSql, $bindings)->c ?? 0);
+        }
 
         $offset = ($page - 1) * $perPage;
         $sql = "SELECT * FROM {$qt}{$whereSql}{$orderSql} LIMIT {$perPage} OFFSET {$offset}";
@@ -57,7 +74,7 @@ class QueryRunner
             ['path' => Request::url(), 'query' => Request::query()]
         );
 
-        return ['rows' => $rows, 'paginator' => $paginator, 'sql' => $sql, 'total' => $total];
+        return ['rows' => $rows, 'paginator' => $paginator, 'sql' => $sql, 'total' => $total, 'approximate' => $approximate];
     }
 
     /**

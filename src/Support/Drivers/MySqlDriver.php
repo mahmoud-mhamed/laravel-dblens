@@ -147,6 +147,15 @@ class MySqlDriver implements DriverInterface
         return array_map(fn ($r) => (string) $r->name, $rows);
     }
 
+    public function approximateRowCount(string $table): ?int
+    {
+        $r = $this->conn->selectOne(
+            'SELECT TABLE_ROWS as c FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
+            [$this->db(), $table]
+        );
+        return $r && $r->c !== null ? (int) $r->c : null;
+    }
+
     public function dropForeignKey(string $table, string $fkName): void
     {
         $t = $this->quoteIdentifier($table);
@@ -231,6 +240,44 @@ class MySqlDriver implements DriverInterface
     public function renameTable(string $from, string $to): void
     {
         $this->conn->statement("RENAME TABLE {$this->quoteIdentifier($from)} TO {$this->quoteIdentifier($to)}");
+    }
+
+    public function allColumns(): array
+    {
+        $rows = $this->conn->select(
+            'SELECT TABLE_NAME as `table`, COLUMN_NAME as `name`, COLUMN_TYPE as `type`, IS_NULLABLE as `nullable`, COLUMN_KEY as `key`
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = ?
+             ORDER BY TABLE_NAME, ORDINAL_POSITION',
+            [$this->db()]
+        );
+        $out = [];
+        foreach ($rows as $r) {
+            $out[$r->table][] = [
+                'name' => (string) $r->name,
+                'type' => (string) $r->type,
+                'nullable' => strtoupper((string) $r->nullable) === 'YES',
+                'key' => $r->key ?: null,
+            ];
+        }
+        return $out;
+    }
+
+    public function allForeignKeys(): array
+    {
+        $rows = $this->conn->select(
+            'SELECT TABLE_NAME as `table`, CONSTRAINT_NAME as `name`, COLUMN_NAME as `column`, REFERENCED_TABLE_NAME as foreign_table, REFERENCED_COLUMN_NAME as foreign_column
+             FROM information_schema.KEY_COLUMN_USAGE
+             WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL',
+            [$this->db()]
+        );
+        return array_map(fn ($r) => [
+            'table' => (string) $r->table,
+            'name' => (string) $r->name,
+            'column' => (string) $r->column,
+            'foreign_table' => (string) $r->foreign_table,
+            'foreign_column' => (string) $r->foreign_column,
+        ], $rows);
     }
 
     public function createTableSql(string $table): ?string

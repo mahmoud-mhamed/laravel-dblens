@@ -12,7 +12,13 @@
                 {{ config('dblens.sql_editor.allow_writes') && ! config('dblens.read_only') ? '✏️ Writes ENABLED' : '🔒 Read-only' }}
                 · max {{ config('dblens.sql_editor.max_rows', 1000) }} rows
             </span>
-            <button class="px-4 py-1.5 bg-sky-600 text-white rounded text-sm hover:bg-sky-700">Run</button>
+            <div class="flex gap-2">
+                <button type="submit" name="action" value="explain"
+                        class="px-3 py-1.5 bg-slate-200 text-slate-700 rounded text-sm hover:bg-slate-300"
+                        title="Show query plan without executing">EXPLAIN</button>
+                <button type="submit" name="action" value="run"
+                        class="px-4 py-1.5 bg-sky-600 text-white rounded text-sm hover:bg-sky-700">Run</button>
+            </div>
         </div>
     </form>
 </div>

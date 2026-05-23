@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use MahmoudMhamed\DbLens\Http\Controllers\AuthController;
 use MahmoudMhamed\DbLens\Http\Controllers\DashboardController;
 use MahmoudMhamed\DbLens\Http\Controllers\DatabaseController;
+use MahmoudMhamed\DbLens\Http\Controllers\DbObjectsController;
 use MahmoudMhamed\DbLens\Http\Controllers\ErController;
 use MahmoudMhamed\DbLens\Http\Controllers\ExportController;
 use MahmoudMhamed\DbLens\Http\Controllers\ImportController;
@@ -30,6 +31,14 @@ Route::post('/{connection}/import', [ImportController::class, 'importSql'])->nam
 
 // ER diagram
 Route::get('/{connection}/er', [ErController::class, 'show'])->name('er.show');
+Route::post('/{connection}/er/views', [ErController::class, 'saveView'])->name('er.view.save');
+Route::delete('/{connection}/er/views/{id}', [ErController::class, 'deleteView'])->name('er.view.delete');
+
+// Database objects (views/routines/triggers/events)
+Route::get('/{connection}/objects', [DbObjectsController::class, 'index'])->name('objects.index');
+Route::delete('/{connection}/objects/{kind}/{name}', [DbObjectsController::class, 'destroy'])
+    ->where('kind', 'view|routine|trigger|event')
+    ->name('objects.destroy');
 
 // Database / connection level
 Route::get('/{connection}', [DatabaseController::class, 'show'])->name('database.show');

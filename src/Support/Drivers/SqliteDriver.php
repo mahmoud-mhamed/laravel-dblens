@@ -256,4 +256,46 @@ class SqliteDriver implements DriverInterface
         $sql = "CREATE TABLE {$this->quoteIdentifier($name)} (\n  " . implode(",\n  ", $cols) . "\n)";
         $this->conn->statement($sql);
     }
+
+    public function views(): array
+    {
+        $rows = $this->conn->select("SELECT name, sql as definition FROM sqlite_master WHERE type = 'view' ORDER BY name");
+        return array_map(fn ($r) => ['name' => (string) $r->name, 'definition' => $r->definition ?? null], $rows);
+    }
+
+    public function routines(): array { return []; }
+
+    public function triggers(): array
+    {
+        $rows = $this->conn->select("SELECT name, tbl_name as `table`, sql as definition FROM sqlite_master WHERE type = 'trigger' ORDER BY name");
+        return array_map(fn ($r) => [
+            'name' => (string) $r->name,
+            'table' => (string) $r->table,
+            'event' => '',
+            'timing' => '',
+            'definition' => $r->definition ?? null,
+        ], $rows);
+    }
+
+    public function events(): array { return []; }
+
+    public function dropView(string $name): void
+    {
+        $this->conn->statement('DROP VIEW ' . $this->quoteIdentifier($name));
+    }
+
+    public function dropRoutine(string $name, string $type): void
+    {
+        throw new \RuntimeException('SQLite has no stored routines.');
+    }
+
+    public function dropTrigger(string $name): void
+    {
+        $this->conn->statement('DROP TRIGGER ' . $this->quoteIdentifier($name));
+    }
+
+    public function dropEvent(string $name): void
+    {
+        throw new \RuntimeException('SQLite has no events.');
+    }
 }

@@ -313,4 +313,86 @@ class MySqlDriver implements DriverInterface
         $sql = "CREATE TABLE {$this->quoteIdentifier($name)} (\n  " . implode(",\n  ", $cols) . "\n)";
         $this->conn->statement($sql);
     }
+
+    public function views(): array
+    {
+        $rows = $this->conn->select(
+            'SELECT TABLE_NAME as name, VIEW_DEFINITION as definition
+             FROM information_schema.VIEWS WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME',
+            [$this->db()]
+        );
+        return array_map(fn ($r) => ['name' => (string) $r->name, 'definition' => $r->definition ?? null], $rows);
+    }
+
+    public function routines(): array
+    {
+        $rows = $this->conn->select(
+            'SELECT ROUTINE_NAME as name, ROUTINE_TYPE as type, ROUTINE_DEFINITION as definition
+             FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = ? ORDER BY ROUTINE_TYPE, ROUTINE_NAME',
+            [$this->db()]
+        );
+        return array_map(fn ($r) => [
+            'name' => (string) $r->name,
+            'type' => (string) $r->type,
+            'definition' => $r->definition ?? null,
+        ], $rows);
+    }
+
+    public function triggers(): array
+    {
+        $rows = $this->conn->select(
+            'SELECT TRIGGER_NAME as name, EVENT_OBJECT_TABLE as `table`, EVENT_MANIPULATION as event,
+                    ACTION_TIMING as timing, ACTION_STATEMENT as definition
+             FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ? ORDER BY EVENT_OBJECT_TABLE, TRIGGER_NAME',
+            [$this->db()]
+        );
+        return array_map(fn ($r) => [
+            'name' => (string) $r->name,
+            'table' => (string) $r->table,
+            'event' => (string) $r->event,
+            'timing' => (string) $r->timing,
+            'definition' => $r->definition ?? null,
+        ], $rows);
+    }
+
+    public function events(): array
+    {
+        try {
+            $rows = $this->conn->select(
+                'SELECT EVENT_NAME as name, EVENT_DEFINITION as definition,
+                        IFNULL(INTERVAL_VALUE, EXECUTE_AT) as `schedule`, STATUS as status
+                 FROM information_schema.EVENTS WHERE EVENT_SCHEMA = ? ORDER BY EVENT_NAME',
+                [$this->db()]
+            );
+        } catch (\Throwable $e) {
+            return [];
+        }
+        return array_map(fn ($r) => [
+            'name' => (string) $r->name,
+            'definition' => $r->definition ?? null,
+            'schedule' => $r->schedule ?? null,
+            'status' => $r->status ?? null,
+        ], $rows);
+    }
+
+    public function dropView(string $name): void
+    {
+        $this->conn->statement('DROP VIEW ' . $this->quoteIdentifier($name));
+    }
+
+    public function dropRoutine(string $name, string $type): void
+    {
+        $type = strtoupper($type) === 'FUNCTION' ? 'FUNCTION' : 'PROCEDURE';
+        $this->conn->statement("DROP {$type} " . $this->quoteIdentifier($name));
+    }
+
+    public function dropTrigger(string $name): void
+    {
+        $this->conn->statement('DROP TRIGGER ' . $this->quoteIdentifier($name));
+    }
+
+    public function dropEvent(string $name): void
+    {
+        $this->conn->statement('DROP EVENT ' . $this->quoteIdentifier($name));
+    }
 }

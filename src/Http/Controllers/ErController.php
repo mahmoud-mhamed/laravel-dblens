@@ -2,8 +2,10 @@
 
 namespace MahmoudMhamed\DbLens\Http\Controllers;
 
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use MahmoudMhamed\DbLens\Services\ConnectionManager;
+use MahmoudMhamed\DbLens\Services\ErViewStorage;
 use MahmoudMhamed\DbLens\Services\SchemaInspector;
 
 class ErController extends Controller
@@ -57,6 +59,8 @@ class ErController extends Controller
         }
         unset($t, $c);
 
+        $views = app(ErViewStorage::class)->forConnection($connection);
+
         return view('dblens::schema.er', [
             'connection' => $connection,
             'connections' => $cm->available(),
@@ -64,6 +68,35 @@ class ErController extends Controller
             'tables' => $tables,
             'diagram' => $diagram,
             'fks' => $allFks,
+            'saved_views' => $views,
         ]);
+    }
+
+    public function saveView(string $connection, Request $request, ConnectionManager $cm, ErViewStorage $storage)
+    {
+        $cm->assertAllowed($connection);
+        $data = $request->validate([
+            'id' => 'nullable|string|max:32',
+            'name' => 'required|string|max:120',
+            'state' => 'required|array',
+        ]);
+        $view = $storage->save([
+            'id' => $data['id'] ?? null,
+            'name' => $data['name'],
+            'connection' => $connection,
+            'state' => $data['state'],
+        ]);
+        return response()->json(['ok' => true, 'view' => $view]);
+    }
+
+    public function deleteView(string $connection, string $id, ConnectionManager $cm, ErViewStorage $storage)
+    {
+        $cm->assertAllowed($connection);
+        $existing = $storage->find($id);
+        if (! $existing || ($existing['connection'] ?? null) !== $connection) {
+            return response()->json(['ok' => false], 404);
+        }
+        $storage->delete($id);
+        return response()->json(['ok' => true]);
     }
 }

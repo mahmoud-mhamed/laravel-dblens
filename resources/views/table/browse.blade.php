@@ -227,7 +227,7 @@
                                 $sortIcon = $isSorted ? (strtoupper($order_dir) === 'ASC' ? '▲' : '▼') : '⇅';
                                 $sortClass = $isSorted ? 'text-sky-600' : 'text-slate-300';
                             @endphp
-                            <th class="px-3 py-2 text-left mono whitespace-nowrap" x-show="visible('{{ $c['name'] }}')">
+                            <th class="px-3 py-2 text-left mono whitespace-nowrap align-top" x-show="visible('{{ $c['name'] }}')">
                                 <a href="{{ request()->fullUrlWithQuery(['order_by' => $c['name'], 'order_dir' => $dir]) }}"
                                    class="inline-flex items-center gap-1 hover:text-sky-600 group">
                                     <span>{{ $c['name'] }}</span>
@@ -251,7 +251,32 @@
                                     @endif
                                 </td>
                             @endif
-                            <td class="px-3 py-2 whitespace-nowrap text-xs">
+                            <td class="px-3 py-2 whitespace-nowrap text-xs relative" x-data="{ peek: false, pinned: false }">
+                                <button type="button" @mouseenter="peek = true" @mouseleave="peek = pinned" @click="pinned = !pinned; peek = pinned"
+                                        class="text-slate-400 hover:text-sky-600" :class="pinned && 'text-sky-600'" title="Hover to preview · click to pin">👁</button>
+                                <div x-show="peek" x-cloak
+                                     class="absolute left-6 top-full mt-1 z-20 w-80 max-h-80 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-xl p-2 text-xs"
+                                     @mouseenter="peek = true" @mouseleave="peek = pinned">
+                                    <div class="flex justify-between items-center pb-1 mb-1 border-b">
+                                        <span class="font-semibold text-slate-600">Row preview</span>
+                                        <button type="button" @click="pinned = false; peek = false" x-show="pinned" class="text-slate-400 hover:text-slate-600">✕</button>
+                                    </div>
+                                    <table class="w-full">
+                                        @foreach ($columns as $pc)
+                                            @php $pv = $row[$pc['name']] ?? null; @endphp
+                                            <tr class="align-top">
+                                                <td class="text-slate-500 pr-2 mono whitespace-nowrap">{{ $pc['name'] }}</td>
+                                                <td class="mono break-all">
+                                                    @if ($pv === null)
+                                                        <span class="text-slate-400 italic">NULL</span>
+                                                    @else
+                                                        {{ \Illuminate\Support\Str::limit((string) $pv, 300) }}
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </table>
+                                </div>
                                 @if ($rk)
                                     <a href="{{ route('dblens.row.show', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}" class="text-sky-600 hover:underline">view</a>
                                     @unless ($readOnly)

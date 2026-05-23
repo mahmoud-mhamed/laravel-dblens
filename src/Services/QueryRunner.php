@@ -194,6 +194,39 @@ class QueryRunner
     }
 
     /**
+     * Run EXPLAIN on the given SELECT. Driver-aware.
+     */
+    public function explain(string $connection, string $sql): array
+    {
+        $driver = $this->cm->driver($connection);
+        $conn = $driver->connection();
+        $trimmed = ltrim($sql);
+        if (! preg_match('/^(SELECT|WITH|UPDATE|DELETE|INSERT)\b/i', $trimmed)) {
+            throw new \RuntimeException('EXPLAIN supports SELECT/WITH/UPDATE/DELETE/INSERT statements.');
+        }
+        $stripped = rtrim($trimmed, "; \t\n\r\0\x0B");
+        $explainSql = match ($driver->name()) {
+            'sqlite' => 'EXPLAIN QUERY PLAN '.$stripped,
+            'pgsql'  => 'EXPLAIN (ANALYZE FALSE, VERBOSE FALSE, COSTS TRUE, FORMAT TEXT) '.$stripped,
+            default  => 'EXPLAIN '.$stripped,
+        };
+        $start = microtime(true);
+        $rows = $conn->select($explainSql);
+        $duration = (int) ((microtime(true) - $start) * 1000);
+        $arr = array_map(fn ($r) => (array) $r, $rows);
+        $cols = $arr ? array_keys($arr[0]) : [];
+        return [
+            'type' => 'read',
+            'rows' => $arr,
+            'columns' => $cols,
+            'affected' => null,
+            'duration_ms' => $duration,
+            'truncated' => false,
+            'explain_sql' => $explainSql,
+        ];
+    }
+
+    /**
      * Execute a raw SQL statement. Returns ['type','rows','columns','affected','duration_ms'].
      */
     public function runRaw(string $connection, string $sql): array

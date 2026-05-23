@@ -16,13 +16,31 @@ class TableController extends Controller
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
 
+        $filters = (array) $request->query('filters', []);
+        $colFilters = (array) $request->query('col_filters', []);
+        if (! empty($colFilters)) {
+            $colTypes = [];
+            foreach ($schema->columns($connection, $table) as $col) {
+                $colTypes[$col['name']] = strtolower($col['type']);
+            }
+            foreach ($colFilters as $col => $val) {
+                if ($val === '' || $val === null) continue;
+                if (! isset($colTypes[$col])) continue;
+                $type = $colTypes[$col];
+                $isText = preg_match('/char|text|enum|json|uuid/', $type);
+                $op = $isText ? 'LIKE' : '=';
+                $value = $isText ? "%{$val}%" : $val;
+                $filters[] = ['column' => $col, 'op' => $op, 'value' => $value, 'enabled' => '1'];
+            }
+        }
+
         $result = $runner->browse($connection, $table, [
             'page' => (int) $request->query('page', 1),
             'per_page' => (int) $request->query('per_page', config('dblens.browse.per_page', 30)),
             'order_by' => $request->query('order_by'),
             'order_dir' => $request->query('order_dir', 'ASC'),
             'search' => (string) $request->query('search', ''),
-            'filters' => (array) $request->query('filters', []),
+            'filters' => $filters,
         ]);
 
         return view('dblens::table.browse', [
@@ -41,6 +59,7 @@ class TableController extends Controller
             'sql' => $result['sql'],
             'search' => (string) $request->query('search', ''),
             'filters' => (array) $request->query('filters', []),
+            'col_filters' => $colFilters,
             'order_by' => $request->query('order_by'),
             'order_dir' => $request->query('order_dir', 'ASC'),
             'enum_casts' => $this->enumCastsForTable($castResolver, $table),

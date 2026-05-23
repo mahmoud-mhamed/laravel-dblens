@@ -32,6 +32,7 @@
     <div class="px-3 py-2 border-t border-slate-700 text-xs">
         <a href="{{ route('dblens.sql.show', ['connection' => $connection]) }}" class="block px-2 py-1 rounded hover:bg-slate-800">⚡ SQL Editor</a>
         <a href="{{ route('dblens.er.show', ['connection' => $connection]) }}" class="block px-2 py-1 rounded hover:bg-slate-800">🗺️ ER Diagram</a>
+        <a href="{{ route('dblens.objects.index', ['connection' => $connection]) }}" class="block px-2 py-1 rounded hover:bg-slate-800">🧩 DB Objects</a>
         @if (count($connections ?? []) > 1)
             <details class="mt-2">
                 <summary class="cursor-pointer px-2 py-1 text-slate-400">Connections</summary>

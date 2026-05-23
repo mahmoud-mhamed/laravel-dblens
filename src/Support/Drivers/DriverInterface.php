@@ -91,4 +91,25 @@ interface DriverInterface
      * @return array<int,array{table:string,name:string,column:string,foreign_table:string,foreign_column:string}>
      */
     public function allForeignKeys(): array;
+
+    /** @return array<int,array{name:string,definition:?string}> */
+    public function views(): array;
+
+    /** @return array<int,array{name:string,type:string,definition:?string}>  type = PROCEDURE|FUNCTION */
+    public function routines(): array;
+
+    /** @return array<int,array{name:string,table:string,event:string,timing:string,definition:?string}> */
+    public function triggers(): array;
+
+    /** @return array<int,array{name:string,definition:?string,schedule:?string,status:?string}> */
+    public function events(): array;
+
+    public function dropView(string $name): void;
+
+    /** @param string $type PROCEDURE|FUNCTION */
+    public function dropRoutine(string $name, string $type): void;
+
+    public function dropTrigger(string $name): void;
+
+    public function dropEvent(string $name): void;
 }

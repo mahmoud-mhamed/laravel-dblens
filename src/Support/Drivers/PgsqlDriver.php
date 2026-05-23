@@ -357,4 +357,75 @@ class PgsqlDriver implements DriverInterface
         $sql = "CREATE TABLE {$this->quoteIdentifier($name)} (\n  " . implode(",\n  ", $cols) . "\n)";
         $this->conn->statement($sql);
     }
+
+    public function views(): array
+    {
+        $rows = $this->conn->select(
+            "SELECT viewname as name, definition FROM pg_views WHERE schemaname = ? ORDER BY viewname",
+            [$this->schema()]
+        );
+        return array_map(fn ($r) => ['name' => (string) $r->name, 'definition' => $r->definition ?? null], $rows);
+    }
+
+    public function routines(): array
+    {
+        $rows = $this->conn->select(
+            "SELECT p.proname as name,
+                    CASE p.prokind WHEN 'f' THEN 'FUNCTION' WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END as type,
+                    pg_get_functiondef(p.oid) as definition
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = ? AND p.prokind IN ('f','p')
+             ORDER BY p.proname",
+            [$this->schema()]
+        );
+        return array_map(fn ($r) => [
+            'name' => (string) $r->name,
+            'type' => (string) $r->type,
+            'definition' => $r->definition ?? null,
+        ], $rows);
+    }
+
+    public function triggers(): array
+    {
+        $rows = $this->conn->select(
+            "SELECT trigger_name as name, event_object_table as \"table\",
+                    event_manipulation as event, action_timing as timing, action_statement as definition
+             FROM information_schema.triggers
+             WHERE trigger_schema = ? ORDER BY event_object_table, trigger_name",
+            [$this->schema()]
+        );
+        return array_map(fn ($r) => [
+            'name' => (string) $r->name,
+            'table' => (string) $r->table,
+            'event' => (string) $r->event,
+            'timing' => (string) $r->timing,
+            'definition' => $r->definition ?? null,
+        ], $rows);
+    }
+
+    public function events(): array
+    {
+        return []; // PostgreSQL has no built-in event scheduler; pg_cron is external.
+    }
+
+    public function dropView(string $name): void
+    {
+        $this->conn->statement('DROP VIEW ' . $this->quoteIdentifier($name));
+    }
+
+    public function dropRoutine(string $name, string $type): void
+    {
+        $type = strtoupper($type) === 'PROCEDURE' ? 'PROCEDURE' : 'FUNCTION';
+        $this->conn->statement("DROP {$type} " . $this->quoteIdentifier($name));
+    }
+
+    public function dropTrigger(string $name): void
+    {
+        throw new \RuntimeException('PostgreSQL triggers must be dropped with a table reference: DROP TRIGGER name ON table.');
+    }
+
+    public function dropEvent(string $name): void
+    {
+        throw new \RuntimeException('PostgreSQL has no built-in events.');
+    }
 }

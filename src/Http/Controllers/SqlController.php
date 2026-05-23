@@ -28,10 +28,13 @@ class SqlController extends Controller
     {
         $cm->assertAllowed($connection);
         $sql = (string) $request->input('sql', '');
+        $action = $request->input('action', 'run');
         $error = null;
         $result = null;
         try {
-            $result = $runner->runRaw($connection, $sql);
+            $result = $action === 'explain'
+                ? $runner->explain($connection, $sql)
+                : $runner->runRaw($connection, $sql);
         } catch (\Throwable $e) {
             $error = $e->getMessage();
         }
@@ -39,6 +42,7 @@ class SqlController extends Controller
             ->route('dblens.sql.show', ['connection' => $connection])
             ->with('dblens.sql', $sql)
             ->with('dblens.sql_result', $result)
-            ->with('dblens.sql_error', $error);
+            ->with('dblens.sql_error', $error)
+            ->with('dblens.sql_action', $action);
     }
 }

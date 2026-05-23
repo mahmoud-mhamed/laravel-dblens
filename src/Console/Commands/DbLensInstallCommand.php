@@ -58,6 +58,16 @@ class DbLensInstallCommand extends Command
         $readOnly = config('dblens.read_only', false);
         $this->line(sprintf('   <fg=%s>•</> read_only mode: %s', $readOnly ? 'yellow' : 'gray', $readOnly ? 'ON' : 'off'));
 
+        $logger = $this->laravel->make(\MahmoudMhamed\DbLens\Services\ActivityLogger::class);
+        $cfg = config('dblens.activity_log.enabled', 'auto');
+        $cfgLabel = $cfg === 'auto' ? 'auto' : ($cfg ? 'on' : 'off');
+        $live = $logger->isEnabled() ? 'active' : 'inactive';
+        $color = $logger->isEnabled() ? 'green' : 'gray';
+        $this->line(sprintf('   <fg=%s>•</> activity_log: %s (%s)', $color, $cfgLabel, $live));
+        if ($cfg === 'auto' && ! $logger->isEnabled()) {
+            $this->line('       <fg=gray>↳ Install spatie/laravel-activitylog and run its migrations to enable.</>');
+        }
+
         $this->line('');
         $this->info('Database connections');
         $this->line(str_repeat('─', 38));

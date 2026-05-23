@@ -26,6 +26,8 @@
                     <a href="{{ route('dblens.table.import.form', ['connection' => $connection, 'table' => $table]) }}"
                        class="px-2 py-1 rounded text-slate-600 hover:bg-slate-100">⬆ Import</a>
                 @endif
+                <span class="text-slate-300 mx-1">|</span>
+                @stack('topbar-actions')
             </span>
         @endisset
     </div>

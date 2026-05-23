@@ -30,7 +30,6 @@
     </nav>
 
     <div class="px-3 py-2 border-t border-slate-700 text-xs">
-        <a href="{{ route('dblens.database.show', ['connection' => $connection]) }}" class="block px-2 py-1 rounded hover:bg-slate-800">🏠 Dashboard</a>
         @if (count($connections ?? []) > 1)
             <details class="mt-2">
                 <summary class="cursor-pointer px-2 py-1 text-slate-400">Connections</summary>

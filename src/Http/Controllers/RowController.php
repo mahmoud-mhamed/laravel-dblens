@@ -29,14 +29,40 @@ class RowController extends Controller
         $incoming = $schema->incomingForeignKeys($connection, $table);
 
         $incomingCounts = [];
+        $incomingPreviews = [];
+        $previewLimit = (int) config('dblens.row.related_preview_limit', 5);
+        $driver = $cm->driver($connection);
         foreach ($incoming as $fk) {
             $foreignVal = $row[$fk['foreign_column']] ?? null;
-            if ($foreignVal === null) { $incomingCounts[$fk['name']] = 0; continue; }
+            $incomingCounts[$fk['name']] = 0;
+            $incomingPreviews[$fk['name']] = ['columns' => [], 'rows' => [], 'pk' => []];
+            if ($foreignVal === null) continue;
             try {
-                $driver = $cm->driver($connection);
-                $sql = 'SELECT COUNT(*) as c FROM ' . $driver->quoteIdentifier($fk['table']) .
-                    ' WHERE ' . $driver->quoteIdentifier($fk['column']) . ' = ?';
-                $incomingCounts[$fk['name']] = (int) ($driver->connection()->selectOne($sql, [$foreignVal])->c ?? 0);
+                $qt = $driver->quoteIdentifier($fk['table']);
+                $qc = $driver->quoteIdentifier($fk['column']);
+                $incomingCounts[$fk['name']] = (int) ($driver->connection()->selectOne("SELECT COUNT(*) as c FROM {$qt} WHERE {$qc} = ?", [$foreignVal])->c ?? 0);
+                if ($incomingCounts[$fk['name']] > 0) {
+                    $childCols = $schema->columns($connection, $fk['table']);
+                    $childPk = $schema->primaryKey($connection, $fk['table']);
+                    // Pick a small, useful subset of columns to preview.
+                    $pickNames = [];
+                    foreach (['id','name','title','label','code','email','created_at','status','type'] as $cand) {
+                        foreach ($childCols as $c) if ($c['name'] === $cand) { $pickNames[$cand] = true; break; }
+                    }
+                    foreach ($childPk as $c) $pickNames[$c] = true;
+                    $pickNames[$fk['column']] = true;
+                    $pick = array_keys($pickNames);
+                    $qcols = implode(',', array_map(fn ($c) => $driver->quoteIdentifier($c), $pick));
+                    $previewRows = $driver->connection()->select(
+                        "SELECT {$qcols} FROM {$qt} WHERE {$qc} = ? LIMIT {$previewLimit}",
+                        [$foreignVal]
+                    );
+                    $incomingPreviews[$fk['name']] = [
+                        'columns' => $pick,
+                        'rows' => array_map(fn ($r) => (array) $r, $previewRows),
+                        'pk' => $childPk,
+                    ];
+                }
             } catch (\Throwable $e) {
                 $incomingCounts[$fk['name']] = null;
             }
@@ -56,6 +82,8 @@ class RowController extends Controller
             'foreign_keys' => $foreignKeys,
             'incoming_fks' => $incoming,
             'incoming_counts' => $incomingCounts,
+            'incoming_previews' => $incomingPreviews,
+            'preview_limit' => $previewLimit,
             'read_only' => (bool) config('dblens.read_only', false),
         ]);
     }

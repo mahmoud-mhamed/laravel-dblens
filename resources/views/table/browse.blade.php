@@ -33,6 +33,35 @@
     $hasFilters = ! empty($cleanFilters);
 @endphp
 
+@push('topbar-actions')
+    @php
+        $hasSelfFk = false;
+        foreach (($foreign_keys ?? []) as $fk) {
+            if (($fk['foreign_table'] ?? null) === $table) { $hasSelfFk = true; break; }
+        }
+    @endphp
+    @if ($hasSelfFk)
+        <a href="{{ route('dblens.table.tree', ['connection' => $connection, 'table' => $table]) }}"
+           class="px-2 py-1 rounded text-emerald-700 hover:bg-emerald-50 text-xs font-semibold" title="Hierarchical tree view">🌳 Tree</a>
+    @endif
+    @unless ($readOnly ?? config('dblens.read_only'))
+        <a href="{{ route('dblens.row.create', ['connection' => $connection, 'table' => $table]) }}"
+           class="px-2 py-1 rounded text-emerald-700 hover:bg-emerald-50 text-xs font-semibold">+ Insert</a>
+        @if (config('dblens.allow_truncate', true))
+            <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
+                  class="inline"
+                  data-confirm-title="Truncate table"
+                  data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $table }}]. This cannot be undone."
+                  data-confirm-text="Truncate"
+                  data-confirm-type="{{ $table }}">
+                @csrf
+                <input type="hidden" name="confirm" value="1">
+                <button type="submit" class="px-2 py-1 rounded text-amber-700 hover:bg-amber-50 text-xs font-semibold" title="Remove ALL rows (keeps the table structure)">⌫ Truncate</button>
+            </form>
+        @endif
+    @endunless
+@endpush
+
 @section('content')
 <div x-data="dbLensBrowse({
         columns: {{ json_encode($columnNames) }},
@@ -41,7 +70,8 @@
         showFilters: {{ $hasFilters ? 'true' : 'false' }},
         ops: {{ json_encode($ops) }}
      })" x-init="init()"
-     @submit="navigating = true"
+     @submit="if (! $event.target.dataset.confirm || $event.target.dataset.confirmed === '1') navigating = true"
+     @dblens-confirm-cancelled.window="navigating = false"
      @click="if ($event.target.closest('a[href]') && !$event.target.closest('a[href]').href.startsWith('javascript:')) navigating = true">
 
     {{-- ─── Navigation overlay (page reload / filter apply / pagination) ─── --}}
@@ -82,6 +112,12 @@
                 ⚙ Filters <span x-show="filters.length" x-text="`(${filters.length})`" class="ml-1"></span>
             </button>
 
+            {{-- Live column filter (always keeps the first column visible) --}}
+            <input type="search" x-model="colFilterQuery"
+                   placeholder="🔎 Filter columns…"
+                   title="Show only columns whose name matches (the first column stays visible for context)"
+                   class="px-3 py-2 border border-slate-300 rounded text-sm w-40 focus:border-sky-400 focus:outline-none">
+
             {{-- Column visibility --}}
             <div class="relative" @click.outside="showColsPanel = false">
                 <button type="button" @click="showColsPanel = !showColsPanel"
@@ -117,39 +153,12 @@
             <input form="dblensFilterForm" type="hidden" name="per_page" value="{{ (int) request('per_page', config('dblens.browse.per_page')) }}">
             <input form="dblensFilterForm" type="hidden" name="order_by" value="{{ $order_by }}">
             <input form="dblensFilterForm" type="hidden" name="order_dir" value="{{ $order_dir }}">
-            <button form="dblensFilterForm" type="submit" class="px-3 py-2 bg-sky-600 text-white rounded text-sm hover:bg-sky-700">Apply</button>
             @if ($search !== '' || $hasFilters)
                 <a href="{{ route('dblens.table.browse', ['connection' => $connection, 'table' => $table]) }}" class="text-xs text-slate-500 hover:underline">Clear</a>
             @endif
             <span class="text-xs text-slate-500 ml-auto" @if (! empty($approximate)) title="Estimated from engine statistics — exact COUNT(*) skipped for performance" @endif>
                 @if (! empty($approximate))~@endif{{ number_format($total) }} row(s)
             </span>
-            @php
-                $hasSelfFk = false;
-                foreach (($foreign_keys ?? []) as $fk) {
-                    if (($fk['foreign_table'] ?? null) === $table) { $hasSelfFk = true; break; }
-                }
-            @endphp
-            @if ($hasSelfFk)
-                <a href="{{ route('dblens.table.tree', ['connection' => $connection, 'table' => $table]) }}"
-                   class="px-3 py-2 bg-emerald-100 text-emerald-700 rounded text-sm hover:bg-emerald-200" title="Hierarchical tree view">🌳 Tree</a>
-            @endif
-            @unless ($readOnly)
-                <a href="{{ route('dblens.row.create', ['connection' => $connection, 'table' => $table]) }}"
-                   class="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-700">+ Insert</a>
-                @if (config('dblens.allow_truncate', true))
-                    <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
-                          class="inline"
-                          data-confirm-title="Truncate table"
-                          data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $table }}]. This cannot be undone."
-                          data-confirm-text="Truncate"
-                          data-confirm-type="{{ $table }}">
-                        @csrf
-                        <input type="hidden" name="confirm" value="1">
-                        <button type="submit" class="px-3 py-2 bg-amber-500 text-white rounded text-sm hover:bg-amber-600" title="Remove ALL rows (keeps the table structure)">⌫ Truncate</button>
-                    </form>
-                @endif
-            @endunless
         </div>
 
         <div x-show="showFilters" x-cloak class="mt-3 border-t pt-3 space-y-2">
@@ -172,9 +181,12 @@
                         @endforeach
                     </select>
                     <select form="dblensFilterForm" :name="`filters[${i}][op]`" x-model="f.op" class="px-2 py-1 border border-slate-300 rounded text-sm mono w-32">
-                        <template x-for="op in ops" :key="op">
-                            <option :value="op" x-text="op"></option>
-                        </template>
+                        {{-- Render options server-side: <template x-for> inside <select>
+                             populates options too late for x-model to pick the correct
+                             one on first render, so values like "IS NULL" appeared as "=". --}}
+                        @foreach ($ops as $op)
+                            <option value="{{ $op }}">{{ $op }}</option>
+                        @endforeach
                     </select>
                     <input form="dblensFilterForm" :name="`filters[${i}][value]`" x-model="f.value" type="text"
                            :disabled="['IS NULL','IS NOT NULL'].includes(f.op)"
@@ -184,7 +196,19 @@
                 </div>
             </template>
             <div class="flex flex-wrap items-center gap-2">
+                <button form="dblensFilterForm" type="submit" class="px-4 py-1 bg-sky-600 text-white rounded text-sm hover:bg-sky-700 font-semibold">Apply</button>
                 <button type="button" @click="addFilter()" class="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-sm rounded text-slate-700">+ Add filter</button>
+                @php
+                    $hasDeletedAt = false;
+                    foreach (($columns ?? []) as $col) {
+                        if ($col['name'] === 'deleted_at') { $hasDeletedAt = true; break; }
+                    }
+                @endphp
+                @if ($hasDeletedAt)
+                    <button type="button" @click="addNotDeletedFilter()"
+                            class="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-sm rounded inline-flex items-center gap-1"
+                            title="Hide soft-deleted rows (deleted_at IS NULL)">⊘ Not deleted</button>
+                @endif
                 <button type="button" x-show="filters.length > 0" @click="clearAllFilters()"
                         class="px-3 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm rounded">
                     Clear all filters
@@ -254,10 +278,16 @@
                     @forelse ($rows as $row)
                         @php
                             $rk = $rowKey($row);
-                            $softDeleted = array_key_exists('deleted_at', $row) && $row['deleted_at'] !== null;
+                            $hasDeletedAtCol = array_key_exists('deleted_at', $row);
                         @endphp
-                        <tr class="border-t {{ $softDeleted ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'hover:bg-slate-50' }}"
-                            @if ($softDeleted) title="Soft-deleted at {{ $row['deleted_at'] }}" @endif>
+                        <tr class="border-t"
+                            @if ($hasDeletedAtCol) x-data="{ deletedAt: @js($row['deleted_at']) }"
+                                @dblens-cell-saved="if ($event.detail.column === 'deleted_at') deletedAt = $event.detail.value"
+                                :class="deletedAt ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'hover:bg-slate-50'"
+                                :title="deletedAt ? 'Soft-deleted at ' + deletedAt : ''"
+                            @else
+                                class="hover:bg-slate-50"
+                            @endif>
                             @if ($hasPk && ! $readOnly)
                                 <td class="px-3 py-2">
                                     @if ($rk)
@@ -265,20 +295,44 @@
                                     @endif
                                 </td>
                             @endif
-                            <td class="px-3 py-2 whitespace-nowrap text-xs relative" x-data="{ peek: false, pinned: false }">
-                                <button type="button" @mouseenter="peek = true" @mouseleave="peek = pinned" @click="pinned = !pinned; peek = pinned"
-                                        class="text-slate-400 hover:text-sky-600" :class="pinned && 'text-sky-600'" title="Hover to preview · click to pin">👁</button>
-                                <div x-show="peek" x-cloak
-                                     class="absolute left-6 top-full mt-1 z-20 w-80 max-h-80 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-xl p-2 text-xs"
-                                     @mouseenter="peek = true" @mouseleave="peek = pinned">
+                            <td class="px-3 py-2 whitespace-nowrap text-xs relative"
+                                x-data="{
+                                    open: false, q: '', notNull: false,
+                                    pos: { top: 0, left: 0 },
+                                    match(col, val) { if (this.notNull && (val === null || val === '')) return false; if (this.q === '') return true; const s = this.q.toLowerCase(); return col.toLowerCase().includes(s) || String(val ?? '').toLowerCase().includes(s); },
+                                    toggle(ev) {
+                                        if (this.open) { this.open = false; return; }
+                                        const r = ev.currentTarget.getBoundingClientRect();
+                                        this.pos = { top: r.bottom + 6, left: r.left };
+                                        // Defer so the originating click finishes bubbling
+                                        // before the popover opens — otherwise its own
+                                        // @click.outside fires on the same event and closes it.
+                                        setTimeout(() => { this.open = true; }, 0);
+                                    },
+                                }">
+                                <button type="button" @click="toggle($event)"
+                                        class="text-slate-400 hover:text-sky-600" :class="open && 'text-sky-600'" title="Click to preview row">👁</button>
+                                <template x-if="open">
+                                <template x-teleport="body">
+                                <div x-cloak @click.outside="open = false" @keydown.escape.window="open = false"
+                                     :style="`top: ${pos.top}px; left: ${pos.left}px;`"
+                                     class="fixed z-[110] w-96 max-h-96 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-2xl p-2 text-xs">
                                     <div class="flex justify-between items-center pb-1 mb-1 border-b">
                                         <span class="font-semibold text-slate-600">Row preview</span>
-                                        <button type="button" @click="pinned = false; peek = false" x-show="pinned" class="text-slate-400 hover:text-slate-600">✕</button>
+                                        <button type="button" @click="open = false" class="text-slate-400 hover:text-slate-600">✕</button>
+                                    </div>
+                                    <div class="flex items-center gap-1 mb-1">
+                                        <input type="search" x-model="q" placeholder="Search column or value…"
+                                               class="flex-1 px-1.5 py-0.5 border border-slate-200 rounded text-xs mono focus:border-sky-400 focus:outline-none">
+                                        <label class="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer select-none"
+                                               :class="notNull ? 'text-emerald-600 font-semibold' : ''">
+                                            <input type="checkbox" x-model="notNull" class="accent-emerald-600"> not null
+                                        </label>
                                     </div>
                                     <table class="w-full">
                                         @foreach ($columns as $pc)
                                             @php $pv = $row[$pc['name']] ?? null; @endphp
-                                            <tr class="align-top">
+                                            <tr class="align-top" x-show="match(@js($pc['name']), @js($pv))">
                                                 <td class="text-slate-500 pr-2 mono whitespace-nowrap">{{ $pc['name'] }}</td>
                                                 <td class="mono break-all">
                                                     @if ($pv === null)
@@ -291,22 +345,31 @@
                                         @endforeach
                                     </table>
                                 </div>
+                                </template>
+                                </template>
                                 @if ($rk)
                                     <a href="{{ route('dblens.row.show', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}"
-                                       class="text-sky-600 hover:text-sky-800" title="Open row page">🔍</a>
+                                       class="text-sky-600 hover:text-sky-800" title="Open row page">↗</a>
                                     @unless ($readOnly)
                                         <a href="{{ route('dblens.row.edit', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}"
                                            class="text-amber-600 hover:text-amber-800 ml-1" title="Edit row">✎</a>
-                                        <form method="POST" action="{{ route('dblens.row.destroy', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}"
-                                              class="inline ml-1"
-                                              data-confirm-title="Delete row"
-                                              data-confirm="Delete this row from [{{ $table }}]? This cannot be undone."
-                                              data-confirm-text="Delete">
-                                            @csrf
-                                            @method('DELETE')
-                                            <input type="hidden" name="confirm" value="1">
-                                            <button type="submit" class="text-red-600 hover:text-red-800" title="Delete row">🗑</button>
-                                        </form>
+                                        @php
+                                            $canSoftDelete = array_key_exists('deleted_at', $row) && $row['deleted_at'] === null;
+                                            $isSoftDeleted = array_key_exists('deleted_at', $row) && $row['deleted_at'] !== null;
+                                        @endphp
+                                        @if ($isSoftDeleted)
+                                            <button type="button"
+                                                    @click="window.dbLensRestoreRow(@js(route('dblens.row.cell.update', ['connection' => $connection, 'table' => $table])), @js($rk))"
+                                                    class="text-emerald-600 hover:text-emerald-800 ml-1" title="Restore row (clear deleted_at)">↩</button>
+                                        @endif
+                                        <button type="button"
+                                                @click="window.dbLensDeleteRow({
+                                                    url: @js(route('dblens.row.destroy', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk])),
+                                                    table: @js($table),
+                                                    softDeleteUrl: @js($canSoftDelete ? route('dblens.row.cell.update', ['connection' => $connection, 'table' => $table]) : null),
+                                                    softDeleteRowKey: @js($canSoftDelete ? $rk : null),
+                                                })"
+                                                class="text-red-600 hover:text-red-800 ml-1" title="Delete row">🗑</button>
                                     @endunless
                                 @endif
                             </td>
@@ -324,6 +387,7 @@
                                     elseif ($phpEnumCases) $kind = 'php_enum';
                                     elseif (preg_match('/^enum\((.*)\)$/i', $type)) $kind = 'enum';
                                     elseif (preg_match('/tinyint\(1\)|^bool/i', $type)) $kind = 'bool';
+                                    elseif (preg_match('/^json/i', $type)) $kind = 'json';
                                     elseif (preg_match('/text|json/i', $type)) $kind = 'textarea';
                                     elseif (preg_match('/datetime|timestamp/i', $type)) $kind = 'datetime';
                                     elseif (preg_match('/^date($|[^t])/i', $type)) $kind = 'date';
@@ -331,6 +395,16 @@
                                     $enumValues = [];
                                     if ($kind === 'enum' && preg_match("/^enum\\((.*)\\)$/i", $type, $m)) {
                                         foreach (explode(',', $m[1]) as $e) $enumValues[] = trim($e, " '\"");
+                                    }
+                                    // Upgrade text columns whose actual value is JSON to the JSON editor.
+                                    if (($kind === 'textarea' || $kind === 'text') && is_string($val) && $val !== '') {
+                                        $trim = ltrim($val);
+                                        if ($trim !== '' && ($trim[0] === '{' || $trim[0] === '[')) {
+                                            $decoded = json_decode($val, true);
+                                            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                                                $kind = 'json';
+                                            }
+                                        }
                                     }
                                 @endphp
                                 <td class="px-3 py-2 mono {{ $editable ? '' : 'truncate-cell' }}"
@@ -433,6 +507,66 @@
                                                           class="px-1 py-0.5 border border-sky-400 rounded text-xs mono w-full min-w-[200px]"
                                                           @keydown.escape="cancel()" @keydown.enter.ctrl.prevent="save()"></textarea>
                                             </template>
+                                            <template x-if="kind === 'json' && editing">
+                                                <template x-teleport="body">
+                                                    @php
+                                                        $rowPkVal = ! empty($primary_key) ? ($row[$primary_key[0]] ?? null) : null;
+                                                        $rowLabel = null;
+                                                        foreach (['name','title','label','code','slug','email','username'] as $cand) {
+                                                            if (array_key_exists($cand, $row) && $row[$cand] !== null && $row[$cand] !== '') {
+                                                                $rowLabel = (string) $row[$cand];
+                                                                break;
+                                                            }
+                                                        }
+                                                    @endphp
+                                                    <div class="fixed inset-0 z-[120] bg-black/40 flex items-center justify-center p-4"
+                                                         @keydown.escape.window="cancel()"
+                                                         @click.self="cancel()">
+                                                        <div class="bg-white rounded-lg shadow-2xl w-[min(720px,95vw)] max-h-[90vh] flex flex-col"
+                                                             x-data="dbLensJsonEditor()" x-init="init($refs.editor, () => value, v => value = v)">
+                                                            <div class="px-4 py-2 border-b flex items-center gap-2 text-xs flex-wrap">
+                                                                <span class="text-slate-700 font-semibold">{ } JSON editor</span>
+                                                                <span class="text-slate-400">·</span>
+                                                                <span class="mono text-slate-600">{{ $c['name'] }}</span>
+                                                                @if ($rowPkVal !== null)
+                                                                    <span class="mono text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">#{{ $rowPkVal }}</span>
+                                                                @endif
+                                                                @if ($rowLabel !== null)
+                                                                    <span class="text-slate-500 truncate max-w-[280px]" title="{{ $rowLabel }}">{{ \Illuminate\Support\Str::limit($rowLabel, 60) }}</span>
+                                                                @endif
+                                                                <button type="button" @click="format()" :disabled="saving"
+                                                                        class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 ml-2" title="Pretty-print">⇲ Format</button>
+                                                                <button type="button" @click="minify()" :disabled="saving"
+                                                                        class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700" title="Minify">⇱ Minify</button>
+                                                                <span class="ml-auto mono"
+                                                                      :class="valid ? 'text-emerald-600' : 'text-red-600'"
+                                                                      x-text="valid ? '✓ valid' : '✗ ' + error"></span>
+                                                            </div>
+                                                            <textarea x-ref="editor" x-model="value" :disabled="saving"
+                                                                      @input="validate()"
+                                                                      spellcheck="false"
+                                                                      class="flex-1 min-h-[300px] px-3 py-2 text-xs mono w-full leading-relaxed focus:outline-none border-0 resize-none"
+                                                                      :class="valid ? '' : 'bg-red-50'"
+                                                                      @keydown.escape="cancel()"
+                                                                      @keydown.enter.ctrl.prevent="minify(); save()"
+                                                                      @keydown.tab.prevent="insertTab($event)"></textarea>
+                                                            <div class="px-4 py-2 border-t bg-slate-50 flex items-center justify-end gap-2">
+                                                                @if ($c['nullable'])
+                                                                    <button type="button" @click="value = ''; save()" :disabled="saving"
+                                                                            class="px-3 py-1.5 text-slate-500 hover:text-amber-600 text-sm" title="Set to NULL">∅ NULL</button>
+                                                                @endif
+                                                                <button type="button" @click="cancel()" :disabled="saving"
+                                                                        class="px-3 py-1.5 text-slate-600 hover:text-slate-800 text-sm">Cancel</button>
+                                                                <button type="button" @click="minify(); save()" :disabled="saving || !valid"
+                                                                        title="Ctrl+Enter · auto-minifies on save"
+                                                                        class="px-4 py-1.5 bg-sky-600 text-white rounded text-sm hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                    Save
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                            </template>
                                             <template x-if="kind === 'date'">
                                                 <input x-ref="input" type="date" x-model="value" :disabled="saving"
                                                        class="px-1 py-0.5 border border-sky-400 rounded text-xs mono"
@@ -453,9 +587,31 @@
                                                        class="px-1 py-0.5 border border-sky-400 rounded text-xs mono w-full min-w-[160px]"
                                                        @keydown.escape="cancel()" @keydown.enter.prevent="save()">
                                             </template>
-                                            <button type="button" @click="save()" :disabled="saving" class="px-1.5 text-emerald-600 hover:text-emerald-800" title="Save (Enter)">✓</button>
-                                            <button type="button" @click="cancel()" :disabled="saving" class="px-1.5 text-slate-400 hover:text-slate-600" title="Cancel (Esc)">✕</button>
+                                            <template x-if="kind !== 'json'">
+                                            <span class="contents">
+                                            @if ($c['nullable'])
+                                                <span class="relative" x-data="{ tip: false }">
+                                                    <button type="button" @click="value = ''; save()" :disabled="saving"
+                                                            @mouseenter="tip = true" @mouseleave="tip = false"
+                                                            class="px-1.5 text-slate-400 hover:text-amber-600" title="Set to NULL">∅</button>
+                                                    <span x-show="tip" x-cloak class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-0.5 bg-slate-800 text-white text-[10px] rounded whitespace-nowrap z-30">Set to NULL</span>
+                                                </span>
+                                            @endif
+                                            <span class="relative" x-data="{ tip: false }">
+                                                <button type="button" @click="save()" :disabled="saving"
+                                                        @mouseenter="tip = true" @mouseleave="tip = false"
+                                                        class="px-1.5 text-emerald-600 hover:text-emerald-800" title="Save (Enter)">✓</button>
+                                                <span x-show="tip" x-cloak class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-0.5 bg-emerald-700 text-white text-[10px] rounded whitespace-nowrap z-30">Save · Enter</span>
+                                            </span>
+                                            <span class="relative" x-data="{ tip: false }">
+                                                <button type="button" @click="cancel()" :disabled="saving"
+                                                        @mouseenter="tip = true" @mouseleave="tip = false"
+                                                        class="px-1.5 text-slate-400 hover:text-slate-600" title="Cancel (Esc)">✕</button>
+                                                <span x-show="tip" x-cloak class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-0.5 bg-slate-800 text-white text-[10px] rounded whitespace-nowrap z-30">Cancel · Esc</span>
+                                            </span>
                                             <span x-show="error" x-text="error" class="text-xs text-red-600 ml-1"></span>
+                                            </span>
+                                            </template>
                                         </div>
                                         </div>
                                         </template>
@@ -537,6 +693,7 @@ function dbLensBrowse(cfg) {
         showColsPanel: false,
         visibleCols: [],
         colSearch: '',
+        colFilterQuery: '',
         ready: false,
         navigating: false,
 
@@ -567,7 +724,13 @@ function dbLensBrowse(cfg) {
                 localStorage.setItem(this.storageKey, JSON.stringify(this.visibleCols));
             } catch (e) { /* storage full or disabled */ }
         },
-        visible(col) { return this.visibleCols.includes(col); },
+        visible(col) {
+            if (! this.visibleCols.includes(col)) return false;
+            const q = (this.colFilterQuery || '').trim().toLowerCase();
+            if (q === '') return true;
+            // Always keep the first column for editing context.
+            return col === this.columns[0] || col.toLowerCase().includes(q);
+        },
         visibleCount() { return this.visibleCols.length; },
         filteredColumns() {
             const q = (this.colSearch || '').trim().toLowerCase();
@@ -590,8 +753,38 @@ function dbLensBrowse(cfg) {
             this.filters.push({ column: this.columns[0] || '', op: '=', value: '', enabled: true });
             this.showFilters = true;
         },
+        addNotDeletedFilter() {
+            // Already applied?  Just bail (idempotent — also prevents dupes).
+            if (this.filters.some(f => f.column === 'deleted_at' && f.op === 'IS NULL' && f.enabled)) return;
+            // Navigate directly so we don't have to wait for Alpine to render
+            // the new <template x-for> row + its hidden inputs before submit.
+            const u = new URL(window.location.href);
+            const p = u.searchParams;
+            p.delete('page');
+            // Re-emit all currently-known filters (so we keep them) plus the new one.
+            // Strip any pre-existing filters[*] keys first.
+            for (const k of [...p.keys()]) if (k.startsWith('filters[')) p.delete(k);
+            const all = [...this.filters, { column: 'deleted_at', op: 'IS NULL', value: '', enabled: true }];
+            all.forEach((f, i) => {
+                p.append(`filters[${i}][column]`, f.column);
+                p.append(`filters[${i}][op]`, f.op);
+                p.append(`filters[${i}][value]`, f.value ?? '');
+                p.append(`filters[${i}][enabled]`, f.enabled ? '1' : '0');
+            });
+            window.location.assign(u.toString());
+        },
         removeFilter(i) { this.filters.splice(i, 1); },
-        clearAllFilters() { this.filters = []; },
+        clearAllFilters() {
+            this.filters = [];
+            // Auto-apply: navigate to the same URL stripped of all filters[] params
+            // so it takes effect without an extra click on Apply.
+            const u = new URL(window.location.href);
+            for (const k of [...u.searchParams.keys()]) {
+                if (k.startsWith('filters[') || k.startsWith('col_filters[')) u.searchParams.delete(k);
+            }
+            u.searchParams.delete('page');
+            window.location.assign(u.toString());
+        },
     }
 }
 
@@ -664,6 +857,9 @@ function dbLensCell(opts) {
                 if (!r.ok) throw new Error(data.message || ('HTTP ' + r.status));
                 this.original = payload.value;
                 this.editing = false;
+                // Let the row (or any ancestor) react to the change — e.g. to
+                // re-apply the soft-deleted styling when `deleted_at` flips.
+                this.$dispatch('dblens-cell-saved', { column: opts.column, value: payload.value });
                 // simple visual feedback
                 this.$el.classList.add('bg-emerald-50');
                 setTimeout(() => this.$el.classList.remove('bg-emerald-50'), 700);
@@ -678,6 +874,54 @@ function dbLensCell(opts) {
             this.error = '';
         },
     }
+}
+
+function dbLensJsonEditor() {
+    return {
+        valid: true,
+        error: '',
+        _get: null,
+        _set: null,
+        init(textarea, getter, setter) {
+            this._get = getter;
+            this._set = setter;
+            // Pretty-print on open if it's a single-line / minified blob.
+            try {
+                const raw = getter() ?? '';
+                if (raw.trim() !== '' && ! raw.includes('\n')) {
+                    setter(JSON.stringify(JSON.parse(raw), null, 2));
+                }
+            } catch (e) { /* leave as-is if not valid JSON */ }
+            this.validate();
+            this.$nextTick(() => textarea?.focus());
+        },
+        validate() {
+            const v = (this._get?.() ?? '').trim();
+            if (v === '') { this.valid = true; this.error = ''; return; }
+            try { JSON.parse(v); this.valid = true; this.error = ''; }
+            catch (e) { this.valid = false; this.error = e.message.replace(/^JSON\.parse: /, ''); }
+        },
+        format() {
+            try {
+                this._set(JSON.stringify(JSON.parse(this._get() ?? ''), null, 2));
+                this.validate();
+            } catch (e) { this.valid = false; this.error = e.message; }
+        },
+        minify() {
+            try {
+                this._set(JSON.stringify(JSON.parse(this._get() ?? '')));
+                this.validate();
+            } catch (e) { this.valid = false; this.error = e.message; }
+        },
+        insertTab(e) {
+            const t = e.target;
+            const s = t.selectionStart, en = t.selectionEnd;
+            const v = t.value;
+            t.value = v.substring(0, s) + '  ' + v.substring(en);
+            t.selectionStart = t.selectionEnd = s + 2;
+            this._set(t.value);
+        },
+    };
 }
 </script>
 @endsection

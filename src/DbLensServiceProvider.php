@@ -8,6 +8,7 @@ use MahmoudMhamed\DbLens\Console\Commands\DbLensInstallCommand;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensMakeMigrationCommand;
 use MahmoudMhamed\DbLens\Http\Middleware\AuthorizeDbLens;
 use MahmoudMhamed\DbLens\Http\Middleware\DbLensThrottle;
+use MahmoudMhamed\DbLens\Services\ActivityLogger;
 use MahmoudMhamed\DbLens\Services\ConnectionManager;
 use MahmoudMhamed\DbLens\Services\QueryRunner;
 use MahmoudMhamed\DbLens\Services\RowEditor;
@@ -33,6 +34,7 @@ class DbLensServiceProvider extends ServiceProvider
         $this->app->singleton(Importer::class, fn ($app) => new Importer($app->make(ConnectionManager::class), $app->make(SchemaInspector::class)));
         $this->app->singleton(ModelCastResolver::class, fn () => new ModelCastResolver());
         $this->app->singleton(ErViewStorage::class, fn () => new ErViewStorage());
+        $this->app->singleton(ActivityLogger::class, fn () => new ActivityLogger());
     }
 
     public function boot(): void

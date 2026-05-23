@@ -16,6 +16,9 @@
         "pestphp/pest": "^2.0|^3.0",
         "pestphp/pest-plugin-laravel": "^2.0|^3.0"
     },
+    "suggest": {
+        "spatie/laravel-activitylog": "Auto-record DbLens write operations (CRUD, DDL, truncate, SQL) in the activity log (^4.0)."
+    },
     "scripts": {
         "test": "vendor/bin/pest"
     },

@@ -74,13 +74,19 @@
                            class="mt-1 w-full px-3 py-2 border border-slate-300 rounded text-sm mono focus:outline-none focus:border-red-500">
                 </div>
             </template>
+            <template x-if="softDeleteUrl">
+                <label class="mt-3 flex items-center gap-2 p-2 border border-amber-200 bg-amber-50 rounded cursor-pointer text-sm">
+                    <input type="checkbox" x-model="softDelete" class="accent-amber-600">
+                    <span class="text-amber-700">🪶 <strong>Soft delete</strong> instead — set <span class="mono">deleted_at = NOW()</span> (keeps the row)</span>
+                </label>
+            </template>
         </div>
         <div class="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
             <button type="button" @click.stop="cancel()" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">Cancel</button>
             <button type="button" @click.stop="proceed()" :disabled="!canConfirm()"
-                    :class="danger ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-300' : 'bg-sky-600 hover:bg-sky-700 disabled:bg-sky-300'"
+                    :class="(softDeleteUrl && softDelete) ? 'bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300' : (danger ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-300' : 'bg-sky-600 hover:bg-sky-700 disabled:bg-sky-300')"
                     class="px-4 py-2 text-white rounded text-sm font-semibold disabled:cursor-not-allowed"
-                    x-text="confirmText"></button>
+                    x-text="(softDeleteUrl && softDelete) ? 'Soft delete' : confirmText"></button>
         </div>
     </div>
 </div>
@@ -96,6 +102,9 @@ function dbLensConfirm() {
         typedConfirmation: null,
         typed: '',
         pending: null,
+        softDeleteUrl: null,
+        softDeleteRowKey: null,
+        softDelete: true,
         open(opts) {
             this.title = opts.title || 'Are you sure?';
             this.message = opts.message || '';
@@ -104,6 +113,9 @@ function dbLensConfirm() {
             this.typedConfirmation = opts.typedConfirmation || null;
             this.typed = '';
             this.pending = opts.onConfirm || null;
+            this.softDeleteUrl = opts.softDeleteUrl || null;
+            this.softDeleteRowKey = opts.softDeleteRowKey || null;
+            this.softDelete = !! this.softDeleteUrl; // default to soft when available
             this.visible = true;
             if (this.typedConfirmation) {
                 this.$nextTick(() => this.$refs.typedInput?.focus());
@@ -113,16 +125,49 @@ function dbLensConfirm() {
             this.visible = false;
             this.pending = null;
             this.typed = '';
+            this.softDeleteUrl = null;
+            // Notify ancestors (e.g. the bulk-form wrapper) that the user
+            // backed out, so they can clear any "Loading…" overlay they set.
+            window.dispatchEvent(new CustomEvent('dblens-confirm-cancelled'));
         },
         canConfirm() {
             return ! this.typedConfirmation || this.typed === this.typedConfirmation;
         },
-        proceed() {
+        async proceed() {
             if (! this.canConfirm()) return;
+            if (this.softDeleteUrl && this.softDelete) {
+                const url = this.softDeleteUrl, rk = this.softDeleteRowKey;
+                this.visible = false;
+                this.pending = null;
+                this.softDeleteUrl = null;
+                try {
+                    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+                    const res = await fetch(url, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '',
+                        },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ row_key: rk, column: 'deleted_at', value: now }),
+                    });
+                    if (! res.ok) {
+                        const d = await res.json().catch(() => ({}));
+                        alert('Soft delete failed: ' + (d.message || ('HTTP ' + res.status)));
+                        return;
+                    }
+                    window.location.reload();
+                } catch (e) {
+                    alert('Soft delete failed: ' + e.message);
+                }
+                return;
+            }
             const fn = this.pending;
             this.visible = false;
             this.pending = null;
             this.typed = '';
+            this.softDeleteUrl = null;
             if (fn) fn();
         },
     }
@@ -136,6 +181,72 @@ function dbLensConfirm() {
  *  data-confirm-type   — word the user must type to enable confirm
  *  data-confirm-danger — "false" to use blue instead of red
  */
+// Programmatic per-row delete. Avoids nesting a <form method=DELETE> inside
+// the bulk-form (which would otherwise leak _method=DELETE to the outer form).
+window.dbLensDeleteRow = function (opts) {
+    const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
+    const detail = {
+        title: 'Delete row',
+        message: 'Delete this row from [' + (opts.table || 'table') + ']? This cannot be undone.',
+        confirmText: 'Delete',
+        softDeleteUrl: opts.softDeleteUrl || null,
+        softDeleteRowKey: opts.softDeleteRowKey || null,
+        onConfirm: async () => {
+            try {
+                const fd = new FormData();
+                fd.append('_method', 'DELETE');
+                fd.append('_token', csrf);
+                fd.append('confirm', '1');
+                const res = await fetch(opts.url, { method: 'POST', body: fd, credentials: 'same-origin' });
+                if (! res.ok && res.status !== 302 && ! res.redirected) {
+                    alert('Delete failed: HTTP ' + res.status);
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                alert('Delete failed: ' + e.message);
+            }
+        },
+    };
+    // Defer so the originating click finishes bubbling before the modal opens.
+    // Otherwise its own click.outside handler would close it immediately.
+    setTimeout(() => window.dispatchEvent(new CustomEvent('open-confirm', { detail })), 0);
+};
+
+// Programmatic restore: clears deleted_at via the cell-update endpoint after
+// a confirm dialog. Used by per-row "↩ Restore" buttons.
+window.dbLensRestoreRow = function (url, rowKey) {
+    const detail = {
+        title: 'Restore row',
+        message: 'Restore this row by setting deleted_at = NULL?',
+        confirmText: 'Restore',
+        danger: false,
+        onConfirm: async () => {
+            try {
+                const res = await fetch(url, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ row_key: rowKey, column: 'deleted_at', value: null }),
+                });
+                if (! res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    alert('Restore failed: ' + (d.message || ('HTTP ' + res.status)));
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                alert('Restore failed: ' + e.message);
+            }
+        },
+    };
+    setTimeout(() => window.dispatchEvent(new CustomEvent('open-confirm', { detail })), 0);
+};
+
 document.addEventListener('submit', function (e) {
     const form = e.target;
     if (! (form instanceof HTMLFormElement)) return;
@@ -150,6 +261,8 @@ document.addEventListener('submit', function (e) {
         confirmText: form.dataset.confirmText || 'Confirm',
         danger: form.dataset.confirmDanger !== 'false',
         typedConfirmation: form.dataset.confirmType || null,
+        softDeleteUrl: form.dataset.confirmSoftDeleteUrl || null,
+        softDeleteRowKey: form.dataset.confirmSoftDeleteRowKey || null,
         onConfirm: () => { form.dataset.confirmed = '1'; form.submit(); }
     }}));
 }, true);

@@ -131,6 +131,12 @@ return [
     | Browse
     |--------------------------------------------------------------------------
     */
+    'row' => [
+        // How many child rows to preview per incoming FK on the row.show page.
+        // Set to 0 to disable previews (only counts will be shown).
+        'related_preview_limit' => 5,
+    ],
+
     'browse' => [
         'per_page' => 30,
         'per_page_options' => [10, 30, 50, 100, 200],
@@ -150,6 +156,44 @@ return [
     'er' => [
         'storage_disk' => null, // null → filesystems.default
         'storage_path' => 'dblens',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Activity log integration (Spatie laravel-activitylog)
+    |--------------------------------------------------------------------------
+    | DbLens can record every write operation (insert / update / delete /
+    | truncate / DDL / raw SQL) through spatie/laravel-activitylog if it's
+    | installed in the host application.
+    |
+    | `enabled` accepts:
+    |   - true  → always enabled (will silently no-op if package missing)
+    |   - false → disabled
+    |   - 'auto' (default) → auto-detect: enabled when the spatie package is
+    |     installed AND its `activity_log` table exists on the default DB
+    |     connection. This is the recommended setting.
+    */
+    'activity_log' => [
+        'enabled' => env('DBLENS_LOG_ACTIVITY', 'auto'),
+        'log_name' => 'dblens',
+        'connection' => env('DBLENS_LOG_CONNECTION'), // null → spatie default
+        // Capture the row's pre-image (SELECT before UPDATE/DELETE). Adds I/O.
+        'capture_old_values' => true,
+        // Persist the raw SQL of write queries run through the SQL editor.
+        // Off by default — SQL may contain sensitive literal values.
+        'capture_sql' => false,
+        // Truncate long string values stored in properties.
+        'max_value_length' => 5000,
+        // Column names whose values are replaced with "•••" before logging.
+        'redact_columns' => ['password', 'remember_token', 'api_token', 'secret'],
+        // Per-event toggles. Wildcards supported via prefix match.
+        'events' => [
+            'row_*' => true,
+            'schema_*' => true,
+            'sql_executed' => false,
+            'import_*' => false,
+            'export_*' => false,
+        ],
     ],
 
     /*

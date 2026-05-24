@@ -207,13 +207,28 @@ return [
     | When stancl/tenancy is installed and a tenant is initialized for the
     | current request (typically via the domain identification middleware),
     | DbLens automatically uses the `tenant` DB connection and shows a pill in
-    | the topbar with the tenant id/domain. Register DbLens routes inside the
-    | tenant route group (routes/tenant.php in stancl's docs) so they run in
-    | tenant context.
+    | the topbar with the tenant id/domain.
+    |
+    | identification_middleware:
+    |   Middleware that initializes tenancy for the current request. When set,
+    |   it is spliced into `viewer.middleware` immediately BEFORE the first
+    |   `auth` / `auth:*` entry, so the auth guard runs against the tenant
+    |   database (not the central one). Leave empty if DbLens is only mounted
+    |   on the central domain, or if you wrap the routes yourself elsewhere.
+    |
+    |   Typical stancl/tenancy v3 setup:
+    |     'identification_middleware' => [
+    |         \Stancl\Tenancy\Middleware\InitializeTenancyByDomain::class,
+    |         \Stancl\Tenancy\Middleware\PreventAccessFromCentralDomains::class,
+    |     ],
     */
     'tenancy' => [
         'enabled' => env('DBLENS_TENANCY', 'auto'),
         'connection_name' => 'tenant',
+        'identification_middleware' => [
+            // \Stancl\Tenancy\Middleware\InitializeTenancyByDomain::class,
+            // \Stancl\Tenancy\Middleware\PreventAccessFromCentralDomains::class,
+        ],
     ],
 
     /*

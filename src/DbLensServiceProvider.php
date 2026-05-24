@@ -135,7 +135,7 @@ class DbLensServiceProvider extends ServiceProvider
     {
         $router = $this->app['router'];
 
-        $middleware = (array) config('dblens.viewer.middleware', ['web']);
+        $middleware = $this->resolveViewerMiddleware();
         $middleware[] = AuthorizeDbLens::class;
 
         if (config('dblens.throttle.enabled', true)) {
@@ -153,5 +153,45 @@ class DbLensServiceProvider extends ServiceProvider
         ], function () {
             $this->loadRoutesFrom(__DIR__ . '/../routes/web.php');
         });
+    }
+
+    /**
+     * Build the viewer middleware stack.
+     *
+     * When `dblens.tenancy.identification_middleware` is configured (typically
+     * stancl/tenancy's `InitializeTenancyByDomain` + `PreventAccessFromCentralDomains`),
+     * those classes are spliced in just before the first `auth` / `auth:*` entry
+     * so the auth guard resolves against the tenant database — not the central one.
+     * If no `auth` entry exists, the tenancy middleware is appended.
+     *
+     * @return array<int,string>
+     */
+    protected function resolveViewerMiddleware(): array
+    {
+        $middleware = array_values((array) config('dblens.viewer.middleware', ['web']));
+
+        $tenancy = array_values(array_filter(
+            (array) config('dblens.tenancy.identification_middleware', []),
+            fn ($m) => is_string($m) && $m !== ''
+        ));
+        if (empty($tenancy)) {
+            return $middleware;
+        }
+
+        $authIndex = null;
+        foreach ($middleware as $i => $m) {
+            if (! is_string($m)) continue;
+            if ($m === 'auth' || str_starts_with($m, 'auth:')) {
+                $authIndex = $i;
+                break;
+            }
+        }
+
+        if ($authIndex === null) {
+            return array_merge($middleware, $tenancy);
+        }
+
+        array_splice($middleware, $authIndex, 0, $tenancy);
+        return $middleware;
     }
 }

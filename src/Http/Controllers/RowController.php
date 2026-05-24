@@ -294,11 +294,6 @@ class RowController extends Controller
         if (! in_array($column, $colNames, true)) {
             return response()->json(['message' => 'Unknown column.'], 422);
         }
-        $masked = array_map('strtolower', (array) config('dblens.masked_columns', []));
-        if (in_array(strtolower($column), $masked, true)) {
-            return response()->json(['message' => 'Cannot edit masked column inline.'], 422);
-        }
-
         try {
             $editor->update($connection, $table, $pkValues, [$column => $value]);
         } catch (\Throwable $e) {

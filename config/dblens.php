@@ -343,6 +343,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Manual hashed-column overrides
+    |--------------------------------------------------------------------------
+    |
+    | Add columns to be auto-hashed even if model auto-detection misses them
+    | (e.g. the model lives outside `models_path`, or uses a non-standard
+    | cast declaration). Format: ['table' => ['column1', 'column2']].
+    |
+    */
+    'hashed_columns' => [
+        // 'users' => ['password'],
+        // 'admins' => ['password', 'pin'],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Dangerous Operations
     |--------------------------------------------------------------------------
     |

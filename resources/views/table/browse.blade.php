@@ -380,7 +380,7 @@
                                     $fk = $foreign_keys[$c['name']] ?? null;
                                     $isPkCol = in_array($c['name'], $primary_key, true);
                                     $type = strtolower($c['type']);
-                                    $editable = ! $readOnly && ! $isMasked && ! $isPkCol && $rk !== null;
+                                    $editable = ! $readOnly && ! $isPkCol && $rk !== null;
                                     $phpEnumCases = ($enum_casts ?? [])[$c['name']] ?? null;
                                     $kind = 'text';
                                     if ($fk) $kind = 'fk';
@@ -414,6 +414,8 @@
                                         <div x-show="!primed" @dblclick="primed = true" class="cursor-pointer hover:bg-amber-50 -mx-1 px-1 rounded" title="Double-click to edit">
                                             @if ($val === null || $val === '')
                                                 <span class="text-slate-400 italic">NULL</span>
+                                            @elseif ($isMasked)
+                                                <span class="text-slate-400">••••••</span>
                                             @elseif ($fk)
                                                 @php $fkRowKey = rawurlencode(json_encode([$fk['foreign_column'] => $val])); @endphp
                                                 <a href="{{ route('dblens.row.show', ['connection' => $connection, 'table' => $fk['foreign_table'], 'rowKey' => $fkRowKey]) }}"
@@ -433,19 +435,24 @@
                                                 enumValues: @js($enumValues),
                                                 phpEnumCases: @js($phpEnumCases ?? []),
                                                 nullable: {{ $c['nullable'] ? 'true' : 'false' }},
-                                                initial: @js($val)
+                                                isMasked: {{ $isMasked ? 'true' : 'false' }},
+                                                initial: @js($isMasked ? '' : $val)
                                             })"
                                             x-init="startEdit()">
                                         <div x-show="!editing" @dblclick="startEdit()" class="cursor-pointer hover:bg-amber-50 -mx-1 px-1 rounded" title="Double-click to edit">
-                                            <span x-show="original === null || original === ''" class="text-slate-400 italic">NULL</span>
-                                            @if ($fk)
-                                                <a x-show="original !== null && original !== ''"
-                                                   :href="'{{ rtrim(route('dblens.table.browse', ['connection' => $connection, 'table' => $fk['foreign_table']]), '/') }}/r/' + encodeURIComponent(JSON.stringify({ {{ json_encode($fk['foreign_column']) }}: original }))"
-                                                   @click.stop class="text-violet-600 hover:underline"
-                                                   title="→ {{ $fk['foreign_table'] }}.{{ $fk['foreign_column'] }}"
-                                                   x-text="String(original ?? '').slice(0, {{ $truncate }})"></a>
+                                            @if ($isMasked)
+                                                <span class="text-slate-400">••••••</span>
                                             @else
-                                                <span x-show="original !== null && original !== ''" x-text="String(original ?? '').slice(0, {{ $truncate }})"></span>
+                                                <span x-show="original === null || original === ''" class="text-slate-400 italic">NULL</span>
+                                                @if ($fk)
+                                                    <a x-show="original !== null && original !== ''"
+                                                       :href="'{{ rtrim(route('dblens.table.browse', ['connection' => $connection, 'table' => $fk['foreign_table']]), '/') }}/r/' + encodeURIComponent(JSON.stringify({ {{ json_encode($fk['foreign_column']) }}: original }))"
+                                                       @click.stop class="text-violet-600 hover:underline"
+                                                       title="→ {{ $fk['foreign_table'] }}.{{ $fk['foreign_column'] }}"
+                                                       x-text="String(original ?? '').slice(0, {{ $truncate }})"></a>
+                                                @else
+                                                    <span x-show="original !== null && original !== ''" x-text="String(original ?? '').slice(0, {{ $truncate }})"></span>
+                                                @endif
                                             @endif
                                         </div>
                                         <div x-show="editing" x-cloak class="flex items-center gap-1">
@@ -805,6 +812,7 @@ function dbLensCell(opts) {
         enumValues: opts.enumValues || [],
         phpEnumCases: opts.phpEnumCases || [],
         nullable: !!opts.nullable,
+        isMasked: !!opts.isMasked,
         options: null,
         loadingLabel: 'Loading…',
         fkSearch: '',
@@ -840,7 +848,15 @@ function dbLensCell(opts) {
         },
         async save() {
             if (this.saving) return;
-            if (String(this.value) === String(this.original ?? '')) { this.editing = false; return; }
+            // Masked columns (e.g. password): the editor starts empty and never
+            // exposes the stored hash. Bail on empty input instead of comparing
+            // to the (empty) original — otherwise the user could never save a
+            // new value, and accidentally hitting Enter would no-op.
+            if (this.isMasked) {
+                if (this.value === '') { this.editing = false; return; }
+            } else if (String(this.value) === String(this.original ?? '')) {
+                this.editing = false; return;
+            }
             this.saving = true;
             this.error = '';
             try {

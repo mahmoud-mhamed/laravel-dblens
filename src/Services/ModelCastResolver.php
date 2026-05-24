@@ -65,7 +65,15 @@ class ModelCastResolver
         if ($this->hashedMap === null) {
             $this->scanModels();
         }
-        return $this->hashedMap[$table] ?? [];
+        $cols = $this->hashedMap[$table] ?? [];
+
+        // Manual overrides win — useful when the model lives outside
+        // `models_path`, or when auto-detection misses it for any reason.
+        // Format: ['table' => ['password', 'pin', ...]]
+        foreach ((array) (config('dblens.hashed_columns', [])[$table] ?? []) as $c) {
+            if (is_string($c) && $c !== '') $cols[$c] = true;
+        }
+        return $cols;
     }
 
     public function isHashed(string $table, string $column): bool
@@ -161,6 +169,24 @@ class ModelCastResolver
                 }
 
                 $casts = $instance->getCasts();
+                // Laravel 11+ also supports declaring casts via a protected
+                // `casts()` method. When the model is built without the
+                // constructor (above) those entries may not be merged into
+                // getCasts() yet — pull them in directly via reflection.
+                if ($ref->hasMethod('casts')) {
+                    try {
+                        $m = $ref->getMethod('casts');
+                        if (! $m->isStatic() && $m->getNumberOfRequiredParameters() === 0) {
+                            $m->setAccessible(true);
+                            $methodCasts = $m->invoke($instance);
+                            if (is_array($methodCasts)) {
+                                $casts = array_merge($methodCasts, $casts);
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        // fall through with whatever getCasts() returned
+                    }
+                }
                 foreach ($casts as $col => $cast) {
                     // Strip the modifiers Laravel allows: "App\Foo:arg1,arg2"
                     $castClass = is_string($cast) ? explode(':', $cast)[0] : null;

@@ -79,10 +79,11 @@ class DbLensInstallCommand extends Command
         $this->info('Database connections');
         $this->line(str_repeat('─', 38));
 
-        $allowed = (array) config('dblens.connections', []);
+        $allowed = (array) config('dblens.connections.allowed', []);
         if (empty($allowed)) {
-            $allowed = [config('database.default')];
-            $this->line('   <fg=gray>(no explicit dblens.connections — using default: '.$allowed[0].')</>');
+            $default = config('dblens.connections.default') ?: config('database.default');
+            $allowed = [$default];
+            $this->line('   <fg=gray>(no explicit dblens.connections.allowed — using default: '.$default.')</>');
         }
 
         foreach ($allowed as $name) {

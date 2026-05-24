@@ -11,6 +11,9 @@ class ModelCastResolver
     /** @var array<string,array<string,string>>|null table => column => enumClass */
     protected ?array $map = null;
 
+    /** @var array<string,array<string,true>>|null table => column => true (columns with `hashed` cast) */
+    protected ?array $hashedMap = null;
+
     /** @var array<string,string>|null table => model FQCN */
     protected ?array $modelMap = null;
 
@@ -49,6 +52,25 @@ class ModelCastResolver
     {
         $map = $this->getEnumCasts();
         return $map[$table][$column] ?? null;
+    }
+
+    /**
+     * Columns on a table that the Eloquent model declares as `hashed` cast.
+     * Used to auto-bcrypt values written through the row editor.
+     *
+     * @return array<string,true>  column => true
+     */
+    public function hashedColumns(string $table): array
+    {
+        if ($this->hashedMap === null) {
+            $this->scanModels();
+        }
+        return $this->hashedMap[$table] ?? [];
+    }
+
+    public function isHashed(string $table, string $column): bool
+    {
+        return isset($this->hashedColumns($table)[$column]);
     }
 
     /**
@@ -107,6 +129,7 @@ class ModelCastResolver
     protected function scanModels(): array
     {
         $this->modelMap = [];
+        $this->hashedMap = [];
         $path = config('dblens.models_path');
         if (! $path || ! is_dir($path)) {
             return [];
@@ -141,7 +164,12 @@ class ModelCastResolver
                 foreach ($casts as $col => $cast) {
                     // Strip the modifiers Laravel allows: "App\Foo:arg1,arg2"
                     $castClass = is_string($cast) ? explode(':', $cast)[0] : null;
-                    if (! $castClass || ! class_exists($castClass)) continue;
+                    if (! $castClass) continue;
+                    if ($castClass === 'hashed') {
+                        $this->hashedMap[$table][$col] = true;
+                        continue;
+                    }
+                    if (! class_exists($castClass)) continue;
                     if (enum_exists($castClass)) {
                         $map[$table][$col] = $castClass;
                     }

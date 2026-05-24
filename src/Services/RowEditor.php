@@ -2,6 +2,7 @@
 
 namespace MahmoudMhamed\DbLens\Services;
 
+use Illuminate\Support\Facades\Hash;
 use MahmoudMhamed\DbLens\Support\Concerns\AssertsWritable;
 use MahmoudMhamed\DbLens\Support\Sql\PkClause;
 use RuntimeException;
@@ -14,7 +15,38 @@ class RowEditor
         protected ConnectionManager $cm,
         protected SchemaInspector $schema,
         protected ?ActivityLogger $logger = null,
+        protected ?ModelCastResolver $casts = null,
     ) {}
+
+    protected function casts(): ModelCastResolver
+    {
+        return $this->casts ??= app(ModelCastResolver::class);
+    }
+
+    /**
+     * Bcrypt any payload columns whose Eloquent model declares a `hashed` cast.
+     * Skips values that already look hashed (bcrypt / argon prefixes) so re-saving
+     * an existing row doesn't double-hash. Disable via `dblens.auto_hash`.
+     */
+    protected function applyHashedCasts(string $table, array $payload): array
+    {
+        if (! config('dblens.auto_hash', true)) {
+            return $payload;
+        }
+        $hashed = $this->casts()->hashedColumns($table);
+        if (empty($hashed)) {
+            return $payload;
+        }
+        foreach ($hashed as $col => $_) {
+            if (! array_key_exists($col, $payload)) continue;
+            $val = $payload[$col];
+            if ($val === null || $val === '') continue;
+            if (! is_string($val)) continue;
+            if (preg_match('/^\$(2[aby]|argon2(i|id)?)\$/', $val)) continue;
+            $payload[$col] = Hash::make($val);
+        }
+        return $payload;
+    }
 
     protected function logger(): ActivityLogger
     {
@@ -93,6 +125,7 @@ class RowEditor
         if (empty($payload)) {
             throw new RuntimeException('No values provided.');
         }
+        $payload = $this->applyHashedCasts($table, $payload);
         $cols = array_map(fn ($c) => $driver->quoteIdentifier($c), array_keys($payload));
         $placeholders = array_fill(0, count($payload), '?');
         $sql = 'INSERT INTO ' . $driver->quoteIdentifier($table)
@@ -140,6 +173,7 @@ class RowEditor
             return 0;
         }
 
+        $payload = $this->applyHashedCasts($table, $payload);
         $oldRow = $this->fetchRow($connection, $table, $pkValues);
 
         $sets = [];

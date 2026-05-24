@@ -310,6 +310,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Auto-hash columns with the `hashed` cast
+    |--------------------------------------------------------------------------
+    |
+    | When true, ANY column whose Eloquent model declares the `hashed` cast
+    | is automatically run through Hash::make() when written via the row
+    | editor or inline cell editor — not just `password`, any column name
+    | works (e.g. `'pin' => 'hashed'`, `'api_token' => 'hashed'`). Values
+    | that already look hashed (bcrypt / argon prefixes) are left untouched,
+    | so re-saving an existing row won't double-hash.
+    |
+    | Requires the table to have a model under `models_path`. Disable to
+    | write raw values regardless of the cast.
+    |
+    */
+    'auto_hash' => env('DBLENS_AUTO_HASH', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Dangerous Operations
     |--------------------------------------------------------------------------
     |

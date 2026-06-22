@@ -373,4 +373,73 @@ class RowEditor
 
         return $affected;
     }
+
+    /**
+     * Insert a copy of an existing row. Auto-increment / single-column integer
+     * primary keys are dropped so the database assigns fresh ones. Returns the
+     * new row's primary-key map (same shape as ::insert()).
+     */
+    public function duplicate(string $connection, string $table, array $pkValues): array
+    {
+        $this->assertWritable();
+        $driver = $this->cm->driver($connection);
+        [$where, $bindings] = PkClause::build($driver, $pkValues);
+        $row = $driver->connection()->selectOne(
+            'SELECT * FROM ' . $driver->quoteIdentifier($table) . ' WHERE ' . $where . ' LIMIT 1',
+            $bindings
+        );
+        if (! $row) {
+            throw new RuntimeException('Row not found.');
+        }
+
+        $data = (array) $row;
+        $pk = $this->schema->primaryKey($connection, $table);
+        foreach ($this->schema->columns($connection, $table) as $c) {
+            $name = $c['name'];
+            $isAutoInc = stripos((string) ($c['extra'] ?? ''), 'auto_increment') !== false;
+            $isIntPk = count($pk) === 1 && in_array($name, $pk, true) && preg_match('/int/i', (string) $c['type']);
+            if ($isAutoInc || $isIntPk) {
+                unset($data[$name]);
+            }
+        }
+
+        return $this->insert($connection, $table, $data);
+    }
+
+    /**
+     * Set a single column to the same value across a set of rows. Each row is
+     * routed through ::update() (so casts / hashing / coercion apply), wrapped
+     * in one transaction. Returns the number of rows actually changed.
+     *
+     * @param  array<int,array<string,mixed>>  $pkSets
+     */
+    public function bulkUpdate(string $connection, string $table, array $pkSets, string $column, mixed $value): int
+    {
+        $this->assertWritable();
+        $driver = $this->cm->driver($connection);
+        $conn = $driver->connection();
+        $affected = 0;
+        $conn->beginTransaction();
+        try {
+            foreach ($pkSets as $pk) {
+                if (!is_array($pk) || empty($pk)) continue;
+                $affected += $this->update($connection, $table, $pk, [$column => $value]);
+            }
+            $conn->commit();
+        } catch (\Throwable $e) {
+            $conn->rollBack();
+            throw $e;
+        }
+
+        $this->logger()->log('row_bulk_updated', "Bulk-updated {$column} on {$affected} row(s) in {$table}", [
+            'connection' => $connection,
+            'table' => $table,
+            'column' => $column,
+            'value' => $value,
+            'count' => $affected,
+            'pk_sample' => array_slice($pkSets, 0, 10),
+        ]);
+
+        return $affected;
+    }
 }

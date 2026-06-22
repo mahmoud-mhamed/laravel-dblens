@@ -238,6 +238,69 @@ class RowController extends Controller
             ->with('dblens.success', 'Row deleted.');
     }
 
+    public function duplicate(string $connection, string $table, string $rowKey, Request $request, ConnectionManager $cm, SchemaInspector $schema, RowEditor $editor)
+    {
+        $this->assertWritable();
+        $cm->assertAllowed($connection);
+        abort_unless($schema->tableExists($connection, $table), 404);
+
+        $pkValues = $this->decodeRowKey($rowKey, $schema->primaryKey($connection, $table));
+        if (empty($pkValues)) abort(404);
+
+        try {
+            $editor->duplicate($connection, $table, $pkValues);
+        } catch (\Throwable $e) {
+            return back()->with('dblens.error', $e->getMessage());
+        }
+
+        return redirect()
+            ->route('dblens.table.browse', array_merge($request->query(), ['connection' => $connection, 'table' => $table]))
+            ->with('dblens.success', 'Row duplicated.');
+    }
+
+    /** Return a single row as a pretty JSON object and an INSERT statement (for copy-to-clipboard). */
+    public function snippet(string $connection, string $table, string $rowKey, ConnectionManager $cm, SchemaInspector $schema)
+    {
+        $cm->assertAllowed($connection);
+        if (! $schema->tableExists($connection, $table)) {
+            return response()->json(['message' => 'Table not found.'], 404);
+        }
+
+        $pkValues = $this->decodeRowKey($rowKey, $schema->primaryKey($connection, $table));
+        if (empty($pkValues)) {
+            return response()->json(['message' => 'Invalid row key.'], 422);
+        }
+
+        $driver = $cm->driver($connection);
+        [$where, $bindings] = \MahmoudMhamed\DbLens\Support\Sql\PkClause::build($driver, $pkValues);
+        $row = $driver->connection()->selectOne(
+            'SELECT * FROM ' . $driver->quoteIdentifier($table) . ' WHERE ' . $where . ' LIMIT 1',
+            $bindings
+        );
+        if (! $row) {
+            return response()->json(['message' => 'Row not found.'], 404);
+        }
+
+        $data = (array) $row;
+        $pdo = $driver->connection()->getPdo();
+        $cols = array_map(fn ($c) => $driver->quoteIdentifier($c), array_keys($data));
+        $vals = array_map(function ($v) use ($pdo) {
+            if ($v === null) return 'NULL';
+            if (is_int($v) || is_float($v)) return (string) $v;
+            // Keep clean integer/decimal strings unquoted; quote everything else.
+            if (is_string($v) && preg_match('/^-?(0|[1-9]\d*)(\.\d+)?$/', $v)) return $v;
+            return $pdo->quote((string) $v);
+        }, array_values($data));
+
+        $insert = 'INSERT INTO ' . $driver->quoteIdentifier($table)
+            . ' (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $vals) . ');';
+
+        return response()->json([
+            'json' => json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'sql' => $insert,
+        ]);
+    }
+
     public function bulkDestroy(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, RowEditor $editor)
     {
         $this->assertWritable();
@@ -272,6 +335,46 @@ class RowController extends Controller
         return redirect()
             ->route('dblens.table.browse', array_merge($request->query(), ['connection' => $connection, 'table' => $table]))
             ->with('dblens.success', $soft ? "{$count} row(s) soft-deleted." : "{$count} row(s) deleted.");
+    }
+
+    public function bulkUpdate(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, RowEditor $editor)
+    {
+        $this->assertWritable();
+        $cm->assertAllowed($connection);
+        abort_unless($schema->tableExists($connection, $table), 404);
+        if (config('dblens.confirm_destructive', true) && ! $request->boolean('confirm')) {
+            abort(422, 'Confirmation required.');
+        }
+
+        $column = (string) $request->input('column', '');
+        $colNames = array_map(fn ($c) => $c['name'], $schema->columns($connection, $table));
+        abort_unless($column !== '' && in_array($column, $colNames, true), 422, 'Unknown column.');
+
+        // Never bulk-overwrite a primary-key column — it would collide / orphan rows.
+        abort_if(in_array($column, $schema->primaryKey($connection, $table), true), 422, 'Cannot bulk-edit a primary-key column.');
+
+        $value = $request->input('value');
+
+        $pkCols = $schema->primaryKey($connection, $table);
+        $keys = (array) $request->input('keys', []);
+        $sets = [];
+        foreach ($keys as $k) {
+            $vals = $this->decodeRowKey((string) $k, $pkCols);
+            if (! empty($vals)) $sets[] = $vals;
+        }
+        if (empty($sets)) {
+            return back()->with('dblens.error', 'No rows selected.');
+        }
+
+        try {
+            $count = $editor->bulkUpdate($connection, $table, $sets, $column, $value);
+        } catch (\Throwable $e) {
+            return back()->with('dblens.error', $e->getMessage());
+        }
+
+        return redirect()
+            ->route('dblens.table.browse', array_merge($request->query(), ['connection' => $connection, 'table' => $table]))
+            ->with('dblens.success', "Updated [{$column}] on {$count} row(s).");
     }
 
     public function updateCell(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, RowEditor $editor)

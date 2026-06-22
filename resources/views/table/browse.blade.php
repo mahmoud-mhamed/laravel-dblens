@@ -91,6 +91,26 @@
 @endpush
 
 @section('content')
+{{-- Remember this table's view (per_page, filters, sort) across visits.
+     Runs before render: persist the current query, or restore the last one
+     when the table is opened fresh (no query string). --}}
+<script>
+(function () {
+    try {
+        var key = 'dblens:view:' + @json($connection) + ':' + @json($table);
+        var search = window.location.search;
+        if (search.length > 1) {
+            var p = new URLSearchParams(search);
+            p.delete('page'); // always reopen on page 1 — saved page may be stale
+            var s = p.toString();
+            if (s) localStorage.setItem(key, s); else localStorage.removeItem(key);
+        } else {
+            var saved = localStorage.getItem(key);
+            if (saved) window.location.replace(window.location.pathname + '?' + saved);
+        }
+    } catch (e) {}
+})();
+</script>
 <div x-data="dbLensBrowse({
         columns: {{ json_encode($columnNames) }},
         storageKey: @js($storageKey),
@@ -404,9 +424,14 @@
                                 @if ($rk)
                                     <a href="{{ route('dblens.row.show', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}"
                                        class="text-sky-600 hover:text-sky-800" title="Open row page">↗</a>
+                                    <button type="button" class="text-slate-500 hover:text-slate-700 ml-1" title="Copy row (JSON / INSERT)"
+                                            @click="window.dbLensCopyRow(@js(route('dblens.row.snippet', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk])))">📋</button>
                                     @unless ($readOnly)
                                         <a href="{{ route('dblens.row.edit', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) }}"
                                            class="text-amber-600 hover:text-amber-800 ml-1" title="Edit row">✎</a>
+                                        <button type="button"
+                                                @click="window.dbLensDuplicateRow(@js(route('dblens.row.duplicate', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) . $qs), @js($table))"
+                                                class="text-emerald-600 hover:text-emerald-800 ml-1" title="Duplicate row">⧉</button>
                                         @php
                                             $canSoftDelete = array_key_exists('deleted_at', $row) && $row['deleted_at'] === null;
                                             $isSoftDeleted = array_key_exists('deleted_at', $row) && $row['deleted_at'] !== null;
@@ -709,9 +734,33 @@
         </div>
 
         @if ($hasPk && ! $readOnly)
-            <div class="mt-3 flex items-center gap-3" x-show="selected.length > 0" x-cloak>
+            <div class="mt-3 flex flex-wrap items-center gap-3" x-show="selected.length > 0" x-cloak>
                 <span class="text-sm text-slate-600"><span x-text="selected.length"></span> selected</span>
                 <button type="submit" class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700">Delete selected</button>
+
+                {{-- Bulk edit: set one column to a value across all selected rows --}}
+                <div x-data="{ col: '', val: '' }" class="flex items-center gap-1.5 border-l border-slate-200 pl-3">
+                    <span class="text-xs text-slate-500">Set</span>
+                    <select x-model="col" class="px-2 py-1 border border-slate-300 rounded text-xs mono">
+                        <option value="">column…</option>
+                        @foreach ($columns as $c)
+                            @if (! in_array($c['name'], $primary_key, true))
+                                <option value="{{ $c['name'] }}">{{ $c['name'] }}</option>
+                            @endif
+                        @endforeach
+                    </select>
+                    <span class="text-xs text-slate-500">=</span>
+                    <input x-model="val" type="text" placeholder="value"
+                           class="px-2 py-1 border border-slate-300 rounded text-xs mono w-36">
+                    <button type="button" @click="val = '__NULL__'"
+                            class="px-2 py-1 text-xs text-slate-500 hover:text-slate-700" title="Set NULL">∅</button>
+                    <button type="button" :disabled="!col"
+                            @click="window.dbLensBulkEdit({
+                                url: @js(route('dblens.row.bulk-update', ['connection' => $connection, 'table' => $table]) . $qs),
+                                keys: selected, column: col, value: val, count: selected.length, table: @js($table),
+                            })"
+                            class="px-3 py-1.5 bg-sky-600 text-white rounded text-xs hover:bg-sky-700 disabled:bg-slate-300 disabled:cursor-not-allowed">Apply</button>
+                </div>
             </div>
         @endif
     </form>

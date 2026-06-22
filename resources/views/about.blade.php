@@ -383,7 +383,7 @@
         <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">Features</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             @foreach ([
-                ['🗂', 'Table browser', 'Paginated rows with per-column inline filters, row-preview popover (search + not-null toggle), sort, search, bulk delete.'],
+                ['🗂', 'Table browser', 'Paginated rows with per-column inline filters, row-preview popover (search + not-null toggle), sort, search, bulk delete, bulk edit, duplicate & copy-as-JSON/INSERT. Remembers each table\'s view (per_page + filters).'],
                 ['✏️', 'Inline cell editor', 'Double-click any cell to edit in place — text, numbers, dates, enums, FK lookups, JSON modal with format/minify/validate, NULL button.'],
                 ['🪶', 'Soft-delete aware', 'Rows with `deleted_at` highlighted red across browse + tree; one-click "Not deleted" filter, soft-delete option in confirm dialog, ↩ restore button.'],
                 ['🌳', 'Tree view', 'Hierarchical view for self-referential tables with per-node child search, jump-to-row, browse-children buttons, expand/collapse all.'],

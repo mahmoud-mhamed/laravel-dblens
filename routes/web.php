@@ -87,6 +87,7 @@ Route::post('/{connection}/t/{table}/rename', [SchemaController::class, 'renameT
 Route::get('/{connection}/t/{table}/create', [RowController::class, 'create'])->name('row.create');
 Route::post('/{connection}/t/{table}/create', [RowController::class, 'store'])->name('row.store');
 Route::post('/{connection}/t/{table}/bulk-delete', [RowController::class, 'bulkDestroy'])->name('row.bulk-destroy');
+Route::post('/{connection}/t/{table}/bulk-update', [RowController::class, 'bulkUpdate'])->name('row.bulk-update');
 Route::patch('/{connection}/t/{table}/cell', [RowController::class, 'updateCell'])->name('row.cell.update');
 Route::get('/{connection}/t/{table}/fk-options', [RowController::class, 'fkOptions'])->name('row.fk.options');
 
@@ -95,6 +96,12 @@ Route::get('/{connection}/t/{table}/fk-options', [RowController::class, 'fkOptio
 Route::get('/{connection}/t/{table}/r/{rowKey}/edit', [RowController::class, 'edit'])
     ->where('rowKey', '[^/]+')
     ->name('row.edit');
+Route::get('/{connection}/t/{table}/r/{rowKey}/snippet', [RowController::class, 'snippet'])
+    ->where('rowKey', '[^/]+')
+    ->name('row.snippet');
+Route::post('/{connection}/t/{table}/r/{rowKey}/duplicate', [RowController::class, 'duplicate'])
+    ->where('rowKey', '[^/]+')
+    ->name('row.duplicate');
 Route::put('/{connection}/t/{table}/r/{rowKey}', [RowController::class, 'update'])
     ->where('rowKey', '[^/]+')
     ->name('row.update');

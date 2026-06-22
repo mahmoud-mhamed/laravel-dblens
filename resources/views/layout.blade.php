@@ -255,6 +255,102 @@ window.dbLensDeleteRow = function (opts) {
     setTimeout(() => window.dispatchEvent(new CustomEvent('open-confirm', { detail })), 0);
 };
 
+// Copy a row to the clipboard. Opens the (fixed-position) confirm modal to
+// pick a format — avoids an in-cell popover that the scroll container clips.
+window.dbLensCopyText = async function (text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+    } else {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); ta.remove();
+    }
+};
+window.dbLensCopyRow = function (url) {
+    const detail = {
+        title: 'Copy row',
+        message: 'Choose a format to copy to the clipboard:',
+        confirmText: 'Copy',
+        danger: false,
+        choices: [
+            { value: 'json', label: 'Copy as JSON', desc: 'The row as a pretty-printed JSON object.' },
+            { value: 'sql', label: 'Copy as INSERT', desc: 'A ready-to-run INSERT statement.' },
+        ],
+        choiceDefault: 'json',
+        onConfirm: async (res) => {
+            const fmt = (res && res.choice) || 'json';
+            try {
+                const r = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                if (! r.ok) { alert('Copy failed: HTTP ' + r.status); return; }
+                const data = await r.json();
+                await window.dbLensCopyText(fmt === 'sql' ? data.sql : data.json);
+            } catch (e) {
+                alert('Copy failed: ' + e.message);
+            }
+        },
+    };
+    setTimeout(() => window.dispatchEvent(new CustomEvent('open-confirm', { detail })), 0);
+};
+
+// Duplicate a row (POST), confirming first, then reload (keeping filters).
+window.dbLensDuplicateRow = function (url, table) {
+    const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
+    const detail = {
+        title: 'Duplicate row',
+        message: 'Insert a copy of this row into [' + (table || 'table') + ']? Auto-increment keys get fresh values.',
+        confirmText: 'Duplicate',
+        danger: false,
+        onConfirm: async () => {
+            try {
+                const fd = new FormData();
+                fd.append('_token', csrf);
+                const res = await fetch(url, { method: 'POST', body: fd, credentials: 'same-origin' });
+                if (! res.ok && res.status !== 302 && ! res.redirected) {
+                    alert('Duplicate failed: HTTP ' + res.status);
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                alert('Duplicate failed: ' + e.message);
+            }
+        },
+    };
+    setTimeout(() => window.dispatchEvent(new CustomEvent('open-confirm', { detail })), 0);
+};
+
+// Programmatic bulk edit: set one column to a value across the selected rows.
+// Confirms first, then POSTs keys[]/column/value and reloads (keeping filters).
+window.dbLensBulkEdit = function (opts) {
+    const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
+    const shown = opts.value === '__NULL__' ? 'NULL' : (opts.value === '' ? '(empty)' : opts.value);
+    const detail = {
+        title: 'Bulk edit',
+        message: 'Set ' + opts.column + ' = ' + shown + ' for ' + opts.count + ' selected row(s) in [' + (opts.table || 'table') + ']?',
+        confirmText: 'Apply',
+        danger: false,
+        onConfirm: async () => {
+            try {
+                const fd = new FormData();
+                fd.append('_token', csrf);
+                fd.append('confirm', '1');
+                fd.append('column', opts.column);
+                fd.append('value', opts.value ?? '');
+                (opts.keys || []).forEach(k => fd.append('keys[]', k));
+                const res = await fetch(opts.url, { method: 'POST', body: fd, credentials: 'same-origin' });
+                if (! res.ok && res.status !== 302 && ! res.redirected) {
+                    alert('Bulk edit failed: HTTP ' + res.status);
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                alert('Bulk edit failed: ' + e.message);
+            }
+        },
+    };
+    setTimeout(() => window.dispatchEvent(new CustomEvent('open-confirm', { detail })), 0);
+};
+
 // Programmatic restore: clears deleted_at via the cell-update endpoint after
 // a confirm dialog. Used by per-row "↩ Restore" buttons.
 window.dbLensRestoreRow = function (url, rowKey) {

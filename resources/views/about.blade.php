@@ -175,20 +175,208 @@
     </div>
 
     {{-- Tenancy --}}
-    @if ($tenancy->isAvailable())
-        <div class="bg-white rounded shadow-sm border border-slate-200">
-            <div class="px-4 py-3 border-b font-semibold flex items-center gap-2">
-                <span>🏢</span> Multi-tenancy
+    @php
+        $tnEnabledCfg = config('dblens.tenancy.enabled', 'auto');
+        $tnEnabledLabel = is_bool($tnEnabledCfg) ? ($tnEnabledCfg ? 'true' : 'false') : (string) $tnEnabledCfg;
+        $tnMiddleware = (array) config('dblens.tenancy.identification_middleware', []);
+        $tnAvailable = $tenancy->isAvailable();
+        $tnRows = [
+            ['Detection mode',   $tnEnabledLabel, $tnEnabledCfg === false ? 'slate' : null],
+            ['stancl/tenancy',   $tnAvailable ? 'installed' : 'not installed', $tnAvailable ? 'emerald' : 'slate'],
+            ['Connection name',  config('dblens.tenancy.connection_name', 'tenant'), null],
+        ];
+    @endphp
+    <div class="bg-white rounded shadow-sm border border-slate-200">
+        <div class="px-4 py-3 border-b font-semibold flex items-center justify-between">
+            <span class="flex items-center gap-2"><span>🏢</span> Multi-tenancy</span>
+            @if ($tnAvailable && $tenancy->isInitialized() && ($cur = $tenancy->current()))
+                <span class="text-[10px] uppercase font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2 py-0.5">
+                    tenant: {{ $cur['name'] ?? $cur['id'] }}
+                </span>
+            @elseif ($tnAvailable)
+                <span class="text-[10px] uppercase font-semibold bg-slate-50 text-slate-600 border border-slate-200 rounded-full px-2 py-0.5">central context</span>
+            @else
+                <span class="text-[10px] uppercase font-semibold bg-slate-50 text-slate-400 border border-slate-200 rounded-full px-2 py-0.5">not installed</span>
+            @endif
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x">
+            <div class="divide-y">
+                @foreach ($tnRows as [$label, $value, $tone])
+                    <div class="px-4 py-2 flex items-center justify-between gap-3">
+                        <div class="text-xs text-slate-500">{{ $label }}</div>
+                        @php $color = match($tone) { 'emerald' => 'text-emerald-600', 'amber' => 'text-amber-600', 'slate' => 'text-slate-400', default => 'text-slate-700' }; @endphp
+                        <div class="mono text-xs font-semibold {{ $color }} truncate text-right max-w-[60%]">{{ $value }}</div>
+                    </div>
+                @endforeach
             </div>
-            <div class="px-4 py-3 text-sm">
-                @if ($tenancy->isInitialized() && ($cur = $tenancy->current()))
-                    Tenant <span class="mono font-semibold">{{ $cur['name'] ?? $cur['id'] }}</span> is initialized — DbLens reads its database transparently.
+            <div class="px-4 py-3">
+                <div class="text-[10px] uppercase text-slate-400 mb-2">Identification middleware</div>
+                @if ($tnMiddleware)
+                    <div class="flex flex-wrap gap-1">
+                        @foreach ($tnMiddleware as $mw)
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-sky-50 text-sky-700 border-sky-200 mono">{{ class_basename($mw) }}</span>
+                        @endforeach
+                    </div>
                 @else
-                    stancl/tenancy is installed (central context). DbLens auto-switches when routes run in tenant context.
+                    <p class="text-xs text-slate-500 leading-relaxed">
+                        None set — DbLens is assumed to run on the central domain. Add tenant identification middleware
+                        (e.g. <code class="mono">InitializeTenancyByDomain</code>) so the auth guard runs against the tenant DB.
+                    </p>
                 @endif
             </div>
         </div>
-    @endif
+    </div>
+
+    {{-- Settings --}}
+    <div>
+        <h2 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-1">Settings</h2>
+        @php
+            // [value, tone] for a boolean. $dangerWhenOn flips an enabled flag to amber (heads-up) instead of emerald.
+            $onOff = fn ($v, $dangerWhenOn = false) => $v
+                ? [$dangerWhenOn ? 'enabled' : 'on', $dangerWhenOn ? 'amber' : 'emerald']
+                : [$dangerWhenOn ? 'disabled' : 'off', 'slate'];
+
+            [$roVal, $roTone]       = $onOff(config('dblens.read_only'), true);
+            [$cdVal, $cdTone]       = $onOff(config('dblens.confirm_destructive', true));
+            [$truncVal, $truncTone] = $onOff(config('dblens.allow_truncate'), true);
+            [$delAllVal, $delAllTone] = $onOff(config('dblens.allow_delete_all'), true);
+            [$dropVal, $dropTone]   = $onOff(config('dblens.allow_drop_table'), true);
+            [$expVal, $expTone]     = $onOff(config('dblens.allow_export', true));
+            [$impVal, $impTone]     = $onOff(config('dblens.allow_import', true));
+            [$hashVal, $hashTone]   = $onOff(config('dblens.auto_hash', true));
+
+            [$sqlEnVal, $sqlEnTone] = $onOff(config('dblens.sql_editor.enabled', true));
+            [$sqlWrVal, $sqlWrTone] = $onOff(config('dblens.sql_editor.allow_writes'), true);
+
+            $cards = [
+                ['🔐', 'Permissions & safety', [
+                    ['Read-only mode',      $roVal,    $roTone],
+                    ['Confirm destructive', $cdVal,    $cdTone],
+                    ['Allow truncate',      $truncVal, $truncTone],
+                    ['Allow delete-all',    $delAllVal, $delAllTone],
+                    ['Allow drop table',    $dropVal,  $dropTone],
+                    ['Allow export',        $expVal,   $expTone],
+                    ['Allow import',        $impVal,   $impTone],
+                    ['Auto-hash columns',   $hashVal,  $hashTone],
+                ]],
+                ['⚡', 'SQL editor', [
+                    ['Enabled',      $sqlEnVal, $sqlEnTone],
+                    ['Allow writes', $sqlWrVal, $sqlWrTone],
+                    ['Max rows',     $fmtNum((int) config('dblens.sql_editor.max_rows', 1000)),    null],
+                    ['Timeout',      config('dblens.sql_editor.timeout_seconds', 30) . 's',         null],
+                ]],
+                ['🗂', 'Browse & rows', [
+                    ['Rows per page',       $fmtNum((int) config('dblens.browse.per_page', 30)),               null],
+                    ['Per-page options',    implode(' · ', (array) config('dblens.browse.per_page_options', [])), null],
+                    ['Cell truncate',       config('dblens.browse.truncate_cell', 120) . ' chars',             null],
+                    ['Approx-count after',  $fmtNum((int) config('dblens.browse.approx_count_threshold', 0)) . ' rows', null],
+                    ['FK picker limit',     $fmtNum((int) config('dblens.browse.fk_options_limit', 100)),      null],
+                    ['Related preview',     $fmtNum((int) config('dblens.row.related_preview_limit', 5)) . ' rows / FK', null],
+                ]],
+                ['📥', 'Import limits', [
+                    ['Max SQL upload', ((int) config('dblens.import.max_sql_bytes', 0)) > 0 ? $fmtBytes((int) config('dblens.import.max_sql_bytes')) : 'no cap', null],
+                    ['CSV batch size', $fmtNum((int) config('dblens.import.csv_batch_size', 200)) . ' rows', null],
+                ]],
+                ['🔎', 'Search & cache', [
+                    ['Global search tables', ((int) config('dblens.global_search.max_tables', 0)) > 0 ? $fmtNum((int) config('dblens.global_search.max_tables')) . ' max' : 'no limit', null],
+                    ['Search timeout',       config('dblens.global_search.statement_timeout_ms', 2000) . ' ms', null],
+                    ['Rows per match',       $fmtNum((int) config('dblens.global_search.per_table_limit', 5)),  null],
+                    ['Schema cache TTL',     config('dblens.schema_cache.ttl_seconds', 60) . 's',               null],
+                ]],
+            ];
+        @endphp
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            @foreach ($cards as [$icon, $title, $rows])
+                <div class="bg-white rounded shadow-sm border border-slate-200">
+                    <div class="px-4 py-3 border-b font-semibold flex items-center gap-2 text-sm">
+                        <span>{{ $icon }}</span> {{ $title }}
+                    </div>
+                    <div class="divide-y">
+                        @foreach ($rows as [$label, $value, $tone])
+                            <div class="px-4 py-2 flex items-center justify-between gap-3">
+                                <div class="text-xs text-slate-500">{{ $label }}</div>
+                                @php $color = match($tone) { 'emerald' => 'text-emerald-600', 'amber' => 'text-amber-600', 'slate' => 'text-slate-400', default => 'text-slate-700' }; @endphp
+                                <div class="mono text-xs font-semibold {{ $color }} truncate text-right max-w-[60%]">{{ $value }}</div>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+
+    {{-- Activity log settings (detailed) --}}
+    @php
+        $alEnabledCfg = config('dblens.activity_log.enabled', 'auto');
+        $alEnabledLabel = is_bool($alEnabledCfg) ? ($alEnabledCfg ? 'true' : 'false') : (string) $alEnabledCfg;
+        [$capOldVal, $capOldTone] = $onOff(config('dblens.activity_log.capture_old_values', true));
+        [$capSqlVal, $capSqlTone] = $onOff(config('dblens.activity_log.capture_sql', false), true);
+        $alGuards  = (array) config('dblens.activity_log.guards', []);
+        $alEvents  = (array) config('dblens.activity_log.events', []);
+        $alRedact  = (array) config('dblens.activity_log.redact_columns', []);
+        $alEnrich  = (array) config('dblens.activity_log.enrich', []);
+        $alScalars = [
+            ['Integration',      $alEnabledLabel, $alEnabledCfg === false ? 'slate' : null],
+            ['Log name',         config('dblens.activity_log.log_name', 'dblens'), null],
+            ['Log connection',   config('dblens.activity_log.connection') ?: 'spatie default', null],
+            ['Causer guards',    $alGuards ? implode(' · ', $alGuards) : 'all auth guards', null],
+            ['Capture old values', $capOldVal, $capOldTone],
+            ['Capture raw SQL',  $capSqlVal, $capSqlTone],
+            ['Max value length', $fmtNum((int) config('dblens.activity_log.max_value_length', 5000)) . ' chars', null],
+        ];
+    @endphp
+    <div class="bg-white rounded shadow-sm border border-slate-200">
+        <div class="px-4 py-3 border-b font-semibold flex items-center gap-2">
+            <span>📜</span> Activity log settings
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x">
+            {{-- Scalar config --}}
+            <div class="divide-y">
+                @foreach ($alScalars as [$label, $value, $tone])
+                    <div class="px-4 py-2 flex items-center justify-between gap-3">
+                        <div class="text-xs text-slate-500">{{ $label }}</div>
+                        @php $color = match($tone) { 'emerald' => 'text-emerald-600', 'amber' => 'text-amber-600', 'slate' => 'text-slate-400', default => 'text-slate-700' }; @endphp
+                        <div class="mono text-xs font-semibold {{ $color }} truncate text-right max-w-[60%]">{{ $value }}</div>
+                    </div>
+                @endforeach
+            </div>
+            {{-- Lists: events, enrichment, redacted columns --}}
+            <div class="divide-y">
+                <div class="px-4 py-3">
+                    <div class="text-[10px] uppercase text-slate-400 mb-2">Logged events</div>
+                    <div class="flex flex-wrap gap-1">
+                        @forelse ($alEvents as $event => $on)
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold border mono {{ $on ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200 line-through' }}">
+                                {{ $event }}
+                            </span>
+                        @empty
+                            <span class="text-xs text-slate-400">none configured</span>
+                        @endforelse
+                    </div>
+                </div>
+                <div class="px-4 py-3">
+                    <div class="text-[10px] uppercase text-slate-400 mb-2">Enrichment sections</div>
+                    <div class="flex flex-wrap gap-1">
+                        @foreach ($alEnrich as $k => $on)
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold border {{ $on ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200' }}">
+                                {{ $k }}
+                            </span>
+                        @endforeach
+                    </div>
+                </div>
+                <div class="px-4 py-3">
+                    <div class="text-[10px] uppercase text-slate-400 mb-2">Redacted columns</div>
+                    <div class="flex flex-wrap gap-1">
+                        @forelse ($alRedact as $col)
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-rose-50 text-rose-700 border-rose-200 mono">{{ $col }}</span>
+                        @empty
+                            <span class="text-xs text-slate-400">none</span>
+                        @endforelse
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     {{-- Features --}}
     <div>
@@ -234,6 +422,10 @@
             <div class="px-4 py-3">
                 <code class="text-sky-700 mono">php artisan dblens:install --views</code>
                 <div class="text-xs text-slate-500 mt-1">Same, also publishes Blade views for full customization.</div>
+            </div>
+            <div class="px-4 py-3">
+                <code class="text-sky-700 mono">php artisan dblens:publish-config --force</code>
+                <div class="text-xs text-slate-500 mt-1">Publish (or overwrite with <code class="mono">--force</code>) the config file at <code class="mono">config/dblens.php</code>.</div>
             </div>
             <div class="px-4 py-3">
                 <code class="text-sky-700 mono">php artisan dblens:activitylog-install</code>

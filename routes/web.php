@@ -79,6 +79,7 @@ Route::delete('/{connection}/t/{table}/indexes/{index}', [SchemaController::clas
 Route::post('/{connection}/t/{table}/foreign-keys', [SchemaController::class, 'addForeignKey'])->name('fk.add');
 
 Route::post('/{connection}/t/{table}/truncate', [SchemaController::class, 'truncate'])->name('table.truncate');
+Route::post('/{connection}/t/{table}/delete-all', [SchemaController::class, 'deleteAllRows'])->name('table.delete-all');
 Route::delete('/{connection}/t/{table}', [SchemaController::class, 'dropTable'])->name('table.drop');
 Route::post('/{connection}/t/{table}/rename', [SchemaController::class, 'renameTable'])->name('table.rename');
 

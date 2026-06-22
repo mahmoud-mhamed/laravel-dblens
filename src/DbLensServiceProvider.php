@@ -7,6 +7,7 @@ use Illuminate\Support\ServiceProvider;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensActivityLogInstallCommand;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensInstallCommand;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensMakeMigrationCommand;
+use MahmoudMhamed\DbLens\Console\Commands\DbLensPublishConfigCommand;
 use MahmoudMhamed\DbLens\Http\Middleware\AuthorizeDbLens;
 use MahmoudMhamed\DbLens\Http\Middleware\DbLensThrottle;
 use MahmoudMhamed\DbLens\Services\ActivityContext;
@@ -72,6 +73,7 @@ class DbLensServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 DbLensInstallCommand::class,
+                DbLensPublishConfigCommand::class,
                 DbLensMakeMigrationCommand::class,
                 DbLensActivityLogInstallCommand::class,
             ]);

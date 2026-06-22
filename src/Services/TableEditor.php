@@ -99,6 +99,77 @@ class TableEditor
         $this->log('schema_table_truncated', "Truncated {$table}", $connection, $table);
     }
 
+    /**
+     * Delete every row via DELETE FROM (not TRUNCATE). Slower than truncate,
+     * but respects triggers, runs in a transaction and returns row counts.
+     *
+     * $fkMode controls how foreign-key references are handled:
+     *   'none'           — plain DELETE FROM (errors if referenced elsewhere).
+     *   'disable_checks' — turn FK constraint checking off for the delete; the
+     *                      target table only (referencing rows are orphaned).
+     *   'cascade'        — recursively delete rows in every table that points
+     *                      at this one first, then this table (keeps integrity).
+     *
+     * @return array{table:string, affected:int, related:array<string,int>, total:int}
+     */
+    public function deleteAllRows(string $connection, string $table, string $fkMode = 'none'): array
+    {
+        $this->assertWritable();
+        $driver = $this->cm->driver($connection);
+        $conn = $driver->connection();
+        $sql = 'DELETE FROM ' . $driver->quoteIdentifier($table);
+
+        if ($fkMode === 'cascade') {
+            $counts = [];
+            $conn->transaction(function () use ($connection, $table, &$counts) {
+                $this->cascadeDeleteRows($connection, $table, $counts, [$table]);
+            });
+            $affected = (int) ($counts[$table] ?? 0);
+            unset($counts[$table]);
+            $this->log('row_all_deleted', "Deleted all rows ({$affected}) from {$table} + related", $connection, $table, [
+                'affected' => $affected, 'fk_mode' => $fkMode, 'related' => $counts,
+            ]);
+            return ['table' => $table, 'affected' => $affected, 'related' => $counts, 'total' => $affected + array_sum($counts)];
+        }
+
+        if ($fkMode === 'disable_checks') {
+            $affected = (int) $conn->getSchemaBuilder()->withoutForeignKeyConstraints(fn () => $conn->delete($sql));
+            $this->log('row_all_deleted', "Deleted all rows ({$affected}) from {$table} [FK checks off]", $connection, $table, [
+                'affected' => $affected, 'fk_mode' => $fkMode,
+            ]);
+            return ['table' => $table, 'affected' => $affected, 'related' => [], 'total' => $affected];
+        }
+
+        $affected = (int) $conn->delete($sql);
+        $this->log('row_all_deleted', "Deleted all rows ({$affected}) from {$table}", $connection, $table, [
+            'affected' => $affected, 'fk_mode' => 'none',
+        ]);
+        return ['table' => $table, 'affected' => $affected, 'related' => [], 'total' => $affected];
+    }
+
+    /**
+     * Depth-first: delete child tables (those referencing $table) before the
+     * table itself. $counts is keyed by table → rows deleted; $stack guards
+     * against FK cycles. Self-references are left to the table's own delete.
+     *
+     * @param  array<string,int>  $counts
+     * @param  array<int,string>  $stack
+     */
+    protected function cascadeDeleteRows(string $connection, string $table, array &$counts, array $stack): void
+    {
+        if (array_key_exists($table, $counts)) return; // already handled (diamond deps)
+        $driver = $this->cm->driver($connection);
+
+        foreach ($this->schema()->incomingForeignKeys($connection, $table) as $fk) {
+            $child = $fk['table'] ?? null;
+            if (! $child || $child === $table) continue;   // self-reference: handled below
+            if (in_array($child, $stack, true)) continue;  // cycle guard
+            $this->cascadeDeleteRows($connection, $child, $counts, array_merge($stack, [$table]));
+        }
+
+        $counts[$table] = (int) $driver->connection()->delete('DELETE FROM ' . $driver->quoteIdentifier($table));
+    }
+
     public function drop(string $connection, string $table): void
     {
         $this->assertWritable();

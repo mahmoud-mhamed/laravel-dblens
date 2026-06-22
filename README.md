@@ -97,6 +97,7 @@ Set `DBLENS_DEFAULT_CONNECTION=tenant` (or use the `connections.default` config)
 
 ### Artisan commands
 - `php artisan dblens:install` — publish config, verify env, list DB connections (add `--views` for full template control)
+- `php artisan dblens:publish-config` — publish only the config file to `config/dblens.php` (add `--force` to overwrite an existing one)
 - `php artisan dblens:make-migration {table}` — generate a Laravel migration from an existing table (columns + indexes + FKs)
 
 ### Security

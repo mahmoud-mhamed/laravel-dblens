@@ -80,13 +80,33 @@
                     <span class="text-amber-700">🪶 <strong>Soft delete</strong> instead — set <span class="mono">deleted_at = NOW()</span> (keeps the row)</span>
                 </label>
             </template>
+            <template x-if="softField">
+                <label class="mt-3 flex items-center gap-2 p-2 border border-amber-200 bg-amber-50 rounded cursor-pointer text-sm">
+                    <input type="checkbox" x-model="softFieldOn" class="accent-amber-600">
+                    <span class="text-amber-700" x-html="softLabel"></span>
+                </label>
+            </template>
+            <template x-if="choices">
+                <div class="mt-3 space-y-1.5" x-show="!isSoft()">
+                    <template x-for="opt in choices" :key="opt.value">
+                        <label class="flex items-start gap-2 p-2 border rounded cursor-pointer text-sm transition"
+                               :class="choiceValue === opt.value ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:border-slate-300'">
+                            <input type="radio" :value="opt.value" x-model="choiceValue" class="mt-0.5 accent-sky-600">
+                            <span class="min-w-0">
+                                <span class="font-semibold text-slate-700" x-text="opt.label"></span>
+                                <span class="block text-xs text-slate-500" x-text="opt.desc"></span>
+                            </span>
+                        </label>
+                    </template>
+                </div>
+            </template>
         </div>
         <div class="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
             <button type="button" @click.stop="cancel()" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">Cancel</button>
             <button type="button" @click.stop="proceed()" :disabled="!canConfirm()"
-                    :class="(softDeleteUrl && softDelete) ? 'bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300' : (danger ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-300' : 'bg-sky-600 hover:bg-sky-700 disabled:bg-sky-300')"
+                    :class="isSoft() ? 'bg-amber-600 hover:bg-amber-700 disabled:bg-amber-300' : (danger ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-300' : 'bg-sky-600 hover:bg-sky-700 disabled:bg-sky-300')"
                     class="px-4 py-2 text-white rounded text-sm font-semibold disabled:cursor-not-allowed"
-                    x-text="(softDeleteUrl && softDelete) ? 'Soft delete' : confirmText"></button>
+                    x-text="isSoft() ? 'Soft delete' : confirmText"></button>
         </div>
     </div>
 </div>
@@ -105,6 +125,14 @@ function dbLensConfirm() {
         softDeleteUrl: null,
         softDeleteRowKey: null,
         softDelete: true,
+        softField: null,
+        softFieldOn: true,
+        softLabel: '',
+        choices: null,
+        choiceValue: null,
+        isSoft() {
+            return (this.softDeleteUrl && this.softDelete) || (this.softField && this.softFieldOn);
+        },
         open(opts) {
             this.title = opts.title || 'Are you sure?';
             this.message = opts.message || '';
@@ -116,6 +144,11 @@ function dbLensConfirm() {
             this.softDeleteUrl = opts.softDeleteUrl || null;
             this.softDeleteRowKey = opts.softDeleteRowKey || null;
             this.softDelete = !! this.softDeleteUrl; // default to soft when available
+            this.softField = opts.softField || null;
+            this.softFieldOn = !! this.softField && opts.softFieldDefault !== false;
+            this.softLabel = opts.softLabel || '🪶 <strong>Soft delete</strong> instead — set <span class="mono">deleted_at = NOW()</span> (keeps the rows)';
+            this.choices = (opts.choices && opts.choices.length) ? opts.choices : null;
+            this.choiceValue = this.choices ? (opts.choiceDefault || this.choices[0].value) : null;
             this.visible = true;
             if (this.typedConfirmation) {
                 this.$nextTick(() => this.$refs.typedInput?.focus());
@@ -126,6 +159,8 @@ function dbLensConfirm() {
             this.pending = null;
             this.typed = '';
             this.softDeleteUrl = null;
+            this.softField = null;
+            this.choices = null;
             // Notify ancestors (e.g. the bulk-form wrapper) that the user
             // backed out, so they can clear any "Loading…" overlay they set.
             window.dispatchEvent(new CustomEvent('dblens-confirm-cancelled'));
@@ -164,11 +199,15 @@ function dbLensConfirm() {
                 return;
             }
             const fn = this.pending;
+            const choice = this.choiceValue;
+            const soft = this.softField ? this.softFieldOn : undefined;
             this.visible = false;
             this.pending = null;
             this.typed = '';
             this.softDeleteUrl = null;
-            if (fn) fn();
+            this.softField = null;
+            this.choices = null;
+            if (fn) fn({ choice, soft });
         },
     }
 }
@@ -187,16 +226,19 @@ window.dbLensDeleteRow = function (opts) {
     const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
     const detail = {
         title: 'Delete row',
-        message: 'Delete this row from [' + (opts.table || 'table') + ']? This cannot be undone.',
+        message: 'Delete this row from [' + (opts.table || 'table') + ']?',
         confirmText: 'Delete',
         softDeleteUrl: opts.softDeleteUrl || null,
         softDeleteRowKey: opts.softDeleteRowKey || null,
-        onConfirm: async () => {
+        choices: opts.choices || null,
+        choiceDefault: 'none',
+        onConfirm: async (resp) => {
             try {
                 const fd = new FormData();
                 fd.append('_method', 'DELETE');
                 fd.append('_token', csrf);
                 fd.append('confirm', '1');
+                if (resp && resp.choice) fd.append('fk_mode', resp.choice);
                 const res = await fetch(opts.url, { method: 'POST', body: fd, credentials: 'same-origin' });
                 if (! res.ok && res.status !== 302 && ! res.redirected) {
                     alert('Delete failed: HTTP ' + res.status);
@@ -255,6 +297,11 @@ document.addEventListener('submit', function (e) {
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
+    let choices = null;
+    if (form.dataset.confirmChoices) {
+        try { choices = JSON.parse(form.dataset.confirmChoices); } catch (_) { choices = null; }
+    }
+    const choiceName = form.dataset.confirmChoiceName || null;
     window.dispatchEvent(new CustomEvent('open-confirm', { detail: {
         title: form.dataset.confirmTitle || 'Confirm',
         message: form.dataset.confirm,
@@ -263,7 +310,23 @@ document.addEventListener('submit', function (e) {
         typedConfirmation: form.dataset.confirmType || null,
         softDeleteUrl: form.dataset.confirmSoftDeleteUrl || null,
         softDeleteRowKey: form.dataset.confirmSoftDeleteRowKey || null,
-        onConfirm: () => { form.dataset.confirmed = '1'; form.submit(); }
+        choices: choices,
+        choiceDefault: form.dataset.confirmChoiceDefault || null,
+        onConfirm: (res) => {
+            if (choiceName && res && res.choice != null) {
+                let inp = form.querySelector('input[data-confirm-choice="1"]');
+                if (! inp) {
+                    inp = document.createElement('input');
+                    inp.type = 'hidden';
+                    inp.dataset.confirmChoice = '1';
+                    form.appendChild(inp);
+                }
+                inp.name = choiceName;
+                inp.value = res.choice;
+            }
+            form.dataset.confirmed = '1';
+            form.submit();
+        }
     }}));
 }, true);
 </script>

@@ -214,49 +214,113 @@ class RowEditor
         return $affected;
     }
 
-    public function delete(string $connection, string $table, array $pkValues): int
+    /**
+     * Delete a single row. $fkMode controls foreign-key handling:
+     *   'none'           — plain DELETE (errors if referenced elsewhere).
+     *   'disable_checks' — turn FK constraint checks off for the delete; rows
+     *                      in other tables that referenced it are orphaned.
+     *   'cascade'        — first delete rows in other tables that reference
+     *                      THIS row (recursively), then the row itself.
+     */
+    public function delete(string $connection, string $table, array $pkValues, string $fkMode = 'none'): int
     {
         $this->assertWritable();
         if (empty($pkValues)) throw new RuntimeException('Cannot delete: no primary key.');
         $driver = $this->cm->driver($connection);
+        $conn = $driver->connection();
 
         $oldRow = $this->fetchRow($connection, $table, $pkValues);
 
         [$where, $bindings] = PkClause::build($driver, $pkValues);
-        $sql = 'DELETE FROM ' . $driver->quoteIdentifier($table)
-            . ' WHERE ' . $where;
-        $affected = $driver->connection()->delete($sql, $bindings);
+        $sql = 'DELETE FROM ' . $driver->quoteIdentifier($table) . ' WHERE ' . $where;
+
+        $related = [];
+        if ($fkMode === 'cascade') {
+            $affected = (int) $conn->transaction(function () use ($connection, $table, $pkValues, $sql, $bindings, $conn, &$related) {
+                foreach ($this->schema->incomingForeignKeys($connection, $table) as $fk) {
+                    $child = $fk['table'] ?? null;
+                    if (! $child || $child === $table) continue;
+                    // The value referenced by the child rows — read straight from
+                    // the row (independent of activity logging / capture_old_values).
+                    $refVal = $conn->table($table)->where($pkValues)->value($fk['foreign_column']);
+                    if ($refVal === null) continue;
+                    $n = $this->deleteWhereCascade($connection, $child, $fk['column'], $refVal, [$table]);
+                    if ($n > 0) $related[$child] = ($related[$child] ?? 0) + $n;
+                }
+                return $conn->delete($sql, $bindings);
+            });
+        } elseif ($fkMode === 'disable_checks') {
+            $affected = (int) $conn->getSchemaBuilder()->withoutForeignKeyConstraints(fn () => $conn->delete($sql, $bindings));
+        } else {
+            $affected = (int) $conn->delete($sql, $bindings);
+        }
 
         if ($affected > 0) {
-            $this->logger()->log('row_deleted', "Deleted row from {$table}", [
+            $this->logger()->log('row_deleted', "Deleted row from {$table}", array_merge([
                 'connection' => $connection,
                 'table' => $table,
                 'pk' => $pkValues,
                 'old' => $oldRow,
                 'affected' => $affected,
-            ]);
+                'fk_mode' => $fkMode,
+            ], $related ? ['related' => $related] : []));
         }
         return $affected;
+    }
+
+    /**
+     * Recursively delete rows in $table where $column = $value, deleting any
+     * rows that reference them first. $stack guards against FK cycles.
+     */
+    protected function deleteWhereCascade(string $connection, string $table, string $column, mixed $value, array $stack): int
+    {
+        $conn = $this->cm->driver($connection)->connection();
+
+        if (! in_array($table, $stack, true)) {
+            foreach ($this->schema->incomingForeignKeys($connection, $table) as $fk) {
+                $child = $fk['table'] ?? null;
+                if (! $child || $child === $table) continue;
+                $refVals = $conn->table($table)->where($column, $value)->distinct()->pluck($fk['foreign_column'])->all();
+                foreach ($refVals as $rv) {
+                    if ($rv === null) continue;
+                    $this->deleteWhereCascade($connection, $child, $fk['column'], $rv, array_merge($stack, [$table]));
+                }
+            }
+        }
+
+        return (int) $conn->table($table)->where($column, $value)->delete();
     }
 
     /**
      * Bulk delete using a list of PK value sets. Wrapped in a transaction.
      * @param  array<int,array<string,mixed>>  $pkSets
      */
-    public function bulkDelete(string $connection, string $table, array $pkSets): int
+    public function bulkDelete(string $connection, string $table, array $pkSets, string $fkMode = 'none'): int
     {
         $this->assertWritable();
         $driver = $this->cm->driver($connection);
+        $conn = $driver->connection();
         $deleted = 0;
-        $driver->connection()->beginTransaction();
-        try {
+        // disable_checks is applied once around the whole loop; cascade is
+        // handled per-row by ::delete(); 'none' deletes plainly.
+        $perRow = $fkMode === 'cascade' ? 'cascade' : 'none';
+        $loop = function () use (&$deleted, $pkSets, $connection, $table, $perRow) {
             foreach ($pkSets as $pk) {
                 if (!is_array($pk) || empty($pk)) continue;
-                $deleted += $this->delete($connection, $table, $pk);
+                $deleted += $this->delete($connection, $table, $pk, $perRow);
             }
-            $driver->connection()->commit();
+        };
+
+        $conn->beginTransaction();
+        try {
+            if ($fkMode === 'disable_checks') {
+                $conn->getSchemaBuilder()->withoutForeignKeyConstraints($loop);
+            } else {
+                $loop();
+            }
+            $conn->commit();
         } catch (\Throwable $e) {
-            $driver->connection()->rollBack();
+            $conn->rollBack();
             throw $e;
         }
 
@@ -267,9 +331,46 @@ class RowEditor
             'connection' => $connection,
             'table' => $table,
             'count' => $deleted,
+            'fk_mode' => $fkMode,
             'pk_sample' => array_slice($pkSets, 0, 10),
         ]);
 
         return $deleted;
+    }
+
+    /**
+     * Soft-delete a set of rows: set the soft-delete column to NOW() instead
+     * of removing them. Mirrors the single-row soft delete (cell update) for
+     * each selected row, wrapped in one transaction.
+     *
+     * @param  array<int,array<string,mixed>>  $pkSets
+     */
+    public function bulkSoftDelete(string $connection, string $table, array $pkSets, string $column = 'deleted_at'): int
+    {
+        $this->assertWritable();
+        $driver = $this->cm->driver($connection);
+        $now = now()->format('Y-m-d H:i:s');
+        $affected = 0;
+        $driver->connection()->beginTransaction();
+        try {
+            foreach ($pkSets as $pk) {
+                if (!is_array($pk) || empty($pk)) continue;
+                $affected += $this->update($connection, $table, $pk, [$column => $now]);
+            }
+            $driver->connection()->commit();
+        } catch (\Throwable $e) {
+            $driver->connection()->rollBack();
+            throw $e;
+        }
+
+        $this->logger()->log('row_bulk_soft_deleted', "Soft-deleted {$affected} row(s) in {$table}", [
+            'connection' => $connection,
+            'table' => $table,
+            'column' => $column,
+            'count' => $affected,
+            'pk_sample' => array_slice($pkSets, 0, 10),
+        ]);
+
+        return $affected;
     }
 }

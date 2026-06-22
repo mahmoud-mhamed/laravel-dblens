@@ -228,13 +228,13 @@ class RowController extends Controller
         if (empty($pkValues)) abort(404);
 
         try {
-            $editor->delete($connection, $table, $pkValues);
+            $editor->delete($connection, $table, $pkValues, $this->fkMode($request));
         } catch (\Throwable $e) {
             return back()->with('dblens.error', $e->getMessage());
         }
 
         return redirect()
-            ->route('dblens.table.browse', ['connection' => $connection, 'table' => $table])
+            ->route('dblens.table.browse', array_merge($request->query(), ['connection' => $connection, 'table' => $table]))
             ->with('dblens.success', 'Row deleted.');
     }
 
@@ -258,15 +258,20 @@ class RowController extends Controller
             return back()->with('dblens.error', 'No rows selected.');
         }
 
+        $colNames = array_map(fn ($c) => $c['name'], $schema->columns($connection, $table));
+        $soft = $request->boolean('soft') && in_array('deleted_at', $colNames, true);
+
         try {
-            $count = $editor->bulkDelete($connection, $table, $sets);
+            $count = $soft
+                ? $editor->bulkSoftDelete($connection, $table, $sets)
+                : $editor->bulkDelete($connection, $table, $sets, $this->fkMode($request));
         } catch (\Throwable $e) {
             return back()->with('dblens.error', $e->getMessage());
         }
 
         return redirect()
-            ->route('dblens.table.browse', ['connection' => $connection, 'table' => $table])
-            ->with('dblens.success', "{$count} row(s) deleted.");
+            ->route('dblens.table.browse', array_merge($request->query(), ['connection' => $connection, 'table' => $table]))
+            ->with('dblens.success', $soft ? "{$count} row(s) soft-deleted." : "{$count} row(s) deleted.");
     }
 
     public function updateCell(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, RowEditor $editor)
@@ -378,6 +383,13 @@ class RowController extends Controller
             'foreign_table' => $foreignTable,
             'foreign_column' => $foreignCol,
         ]);
+    }
+
+    /** Read & whitelist the foreign-key handling mode from the request. */
+    protected function fkMode(Request $request): string
+    {
+        $mode = (string) $request->input('fk_mode', 'none');
+        return in_array($mode, ['none', 'disable_checks', 'cascade'], true) ? $mode : 'none';
     }
 
     /**

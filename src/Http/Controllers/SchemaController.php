@@ -156,6 +156,31 @@ class SchemaController extends Controller
         return $this->backToStructure($connection, $table, "Table [{$table}] truncated.");
     }
 
+    public function deleteAllRows(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
+    {
+        $this->assertWritable();
+        abort_unless(config('dblens.allow_delete_all', true), 403, 'DELETE ALL is disabled.');
+        $cm->assertAllowed($connection);
+        abort_unless($schema->tableExists($connection, $table), 404);
+        $this->confirmed($request);
+        $fkMode = (string) $request->input('fk_mode', 'none');
+        if (! in_array($fkMode, ['none', 'disable_checks', 'cascade'], true)) {
+            $fkMode = 'none';
+        }
+        try {
+            $result = $editor->deleteAllRows($connection, $table, $fkMode);
+        } catch (\Throwable $e) { return $this->backWithError($e); }
+
+        $message = "Deleted {$result['affected']} row(s) from [{$table}].";
+        if (! empty($result['related'])) {
+            $message .= ' Also removed ' . array_sum($result['related'])
+                . ' related row(s) across ' . count($result['related']) . ' table(s).';
+        }
+        return redirect()
+            ->route('dblens.table.browse', array_merge($request->query(), ['connection' => $connection, 'table' => $table]))
+            ->with('dblens.success', $message);
+    }
+
     public function dropTable(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();

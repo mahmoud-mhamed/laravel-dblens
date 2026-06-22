@@ -29,6 +29,28 @@
             </form>
         @endif
 
+        @if (config('dblens.allow_delete_all', true))
+            @php
+                $deleteAllChoices = [
+                    ['value' => 'none',           'label' => 'Plain delete',       'desc' => 'Fails if other tables still reference these rows.'],
+                    ['value' => 'disable_checks', 'label' => 'Disable FK checks',  'desc' => 'Force the delete; referencing rows are left orphaned.'],
+                    ['value' => 'cascade',        'label' => 'Delete related rows','desc' => 'Also delete all rows in tables that reference this one.'],
+                ];
+            @endphp
+            <form method="POST" action="{{ route('dblens.table.delete-all', ['connection' => $connection, 'table' => $table]) }}"
+                  data-confirm-title="Delete all rows"
+                  data-confirm="DELETE every row from [{{ $table }}]. The table structure is kept. Choose how foreign-key references are handled below."
+                  data-confirm-text="Delete all"
+                  data-confirm-type="{{ $table }}"
+                  data-confirm-choice-name="fk_mode"
+                  data-confirm-choice-default="none"
+                  data-confirm-choices="{{ json_encode($deleteAllChoices) }}">
+                @csrf
+                <input type="hidden" name="confirm" value="1">
+                <button class="px-3 py-1 bg-orange-600 text-white rounded text-xs">Delete all rows</button>
+            </form>
+        @endif
+
         @if (config('dblens.allow_drop_table', true))
             <form method="POST" action="{{ route('dblens.table.drop', ['connection' => $connection, 'table' => $table]) }}"
                   data-confirm-title="Drop table"

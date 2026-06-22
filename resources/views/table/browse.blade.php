@@ -8,6 +8,12 @@
     $columnNames = array_map(fn ($c) => $c['name'], $columns);
     $storageKey = 'dblens:' . $connection . ':' . $table . ':cols';
 
+    // Current browse query (filters, per_page, page, sort) — appended to
+    // mutation form actions so the controller can redirect back to the same
+    // filtered/paginated view after the action completes.
+    $browseQuery = request()->getQueryString();
+    $qs = $browseQuery ? '?' . $browseQuery : '';
+
     $rowKey = function (array $row) use ($primary_key) {
         if (empty($primary_key)) return null;
         $vals = [];
@@ -48,7 +54,7 @@
         <a href="{{ route('dblens.row.create', ['connection' => $connection, 'table' => $table]) }}"
            class="px-2 py-1 rounded text-emerald-700 hover:bg-emerald-50 text-xs font-semibold">+ Insert</a>
         @if (config('dblens.allow_truncate', true))
-            <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
+            <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}{{ $qs }}"
                   class="inline"
                   data-confirm-title="Truncate table"
                   data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $table }}]. This cannot be undone."
@@ -57,6 +63,28 @@
                 @csrf
                 <input type="hidden" name="confirm" value="1">
                 <button type="submit" class="px-2 py-1 rounded text-amber-700 hover:bg-amber-50 text-xs font-semibold" title="Remove ALL rows (keeps the table structure)">⌫ Truncate</button>
+            </form>
+        @endif
+        @if (config('dblens.allow_delete_all', true))
+            @php
+                $deleteAllChoices = [
+                    ['value' => 'none',           'label' => 'Plain delete',       'desc' => 'Fails if other tables still reference these rows.'],
+                    ['value' => 'disable_checks', 'label' => 'Disable FK checks',  'desc' => 'Force the delete; referencing rows are left orphaned.'],
+                    ['value' => 'cascade',        'label' => 'Delete related rows','desc' => 'Also delete all rows in tables that reference this one.'],
+                ];
+            @endphp
+            <form method="POST" action="{{ route('dblens.table.delete-all', ['connection' => $connection, 'table' => $table]) }}{{ $qs }}"
+                  class="inline"
+                  data-confirm-title="Delete all rows"
+                  data-confirm="DELETE every row from [{{ $table }}]. The table structure is kept. Choose how foreign-key references are handled below."
+                  data-confirm-text="Delete all"
+                  data-confirm-type="{{ $table }}"
+                  data-confirm-choice-name="fk_mode"
+                  data-confirm-choice-default="none"
+                  data-confirm-choices="{{ json_encode($deleteAllChoices) }}">
+                @csrf
+                <input type="hidden" name="confirm" value="1">
+                <button type="submit" class="px-2 py-1 rounded text-orange-700 hover:bg-orange-50 text-xs font-semibold" title="DELETE every row (FK-aware)">🗑 Delete all rows</button>
             </form>
         @endif
     @endunless
@@ -223,16 +251,42 @@
     </div>
 
     {{-- ─── Bulk form / table ───────────────────────────────────── --}}
-    <form method="POST" action="{{ route('dblens.row.bulk-destroy', ['connection' => $connection, 'table' => $table]) }}"
+    @php
+        $hasSoftDelete = false;
+        foreach (($columns ?? []) as $col) {
+            if (($col['name'] ?? null) === 'deleted_at') { $hasSoftDelete = true; break; }
+        }
+        $fkRowChoices = [
+            ['value' => 'none',           'label' => 'Plain delete',        'desc' => 'Fails if other rows still reference it.'],
+            ['value' => 'disable_checks', 'label' => 'Disable FK checks',   'desc' => 'Force the delete; referencing rows are left orphaned.'],
+            ['value' => 'cascade',        'label' => 'Delete related rows', 'desc' => 'Also delete rows in other tables that reference it.'],
+        ];
+    @endphp
+    <form method="POST" action="{{ route('dblens.row.bulk-destroy', ['connection' => $connection, 'table' => $table]) }}{{ $qs }}"
           x-data="{ selected: [] }" id="bulk-form"
           class="flex-1 flex flex-col min-h-0"
           @submit.prevent="
               if ($el.dataset.confirmed === '1') { $el.submit(); return; }
               $dispatch('open-confirm', {
                   title: 'Delete selected rows',
-                  message: `Delete ${selected.length} row(s) from [{{ $table }}]? This cannot be undone.`,
+                  message: `Delete ${selected.length} row(s) from [{{ $table }}]?`,
                   confirmText: 'Delete',
-                  onConfirm: () => { $el.dataset.confirmed = '1'; $el.submit(); }
+                  @if ($hasSoftDelete) softField: 'soft', @endif
+                  choices: {{ Illuminate\Support\Js::from($fkRowChoices) }},
+                  choiceDefault: 'none',
+                  onConfirm: (res) => {
+                      let sf = $el.querySelector('input[name=\'soft\'][data-soft-flag=\'1\']');
+                      if (res && res.soft) {
+                          if (! sf) { sf = document.createElement('input'); sf.type = 'hidden'; sf.name = 'soft'; sf.dataset.softFlag = '1'; $el.appendChild(sf); }
+                          sf.value = '1';
+                      } else if (sf) { sf.remove(); }
+                      let fm = $el.querySelector('input[name=\'fk_mode\'][data-fk-flag=\'1\']');
+                      if (res && res.choice && ! (res && res.soft)) {
+                          if (! fm) { fm = document.createElement('input'); fm.type = 'hidden'; fm.name = 'fk_mode'; fm.dataset.fkFlag = '1'; $el.appendChild(fm); }
+                          fm.value = res.choice;
+                      } else if (fm) { fm.remove(); }
+                      $el.dataset.confirmed = '1'; $el.submit();
+                  }
               });
           ">
         @csrf
@@ -364,10 +418,11 @@
                                         @endif
                                         <button type="button"
                                                 @click="window.dbLensDeleteRow({
-                                                    url: @js(route('dblens.row.destroy', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk])),
+                                                    url: @js(route('dblens.row.destroy', ['connection' => $connection, 'table' => $table, 'rowKey' => $rk]) . $qs),
                                                     table: @js($table),
                                                     softDeleteUrl: @js($canSoftDelete ? route('dblens.row.cell.update', ['connection' => $connection, 'table' => $table]) : null),
                                                     softDeleteRowKey: @js($canSoftDelete ? $rk : null),
+                                                    choices: @js($fkRowChoices),
                                                 })"
                                                 class="text-red-600 hover:text-red-800 ml-1" title="Delete row">🗑</button>
                                     @endunless

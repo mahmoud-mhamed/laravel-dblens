@@ -100,6 +100,14 @@
                     </template>
                 </div>
             </template>
+            <template x-if="inputName">
+                <div class="mt-3">
+                    <label class="text-xs text-slate-500" x-text="inputLabel"></label>
+                    <input :type="inputType" x-model="inputValue" :min="inputMin" :max="inputMax" x-ref="promptInput"
+                           @keydown.enter.prevent.stop="canConfirm() && proceed()"
+                           class="mt-1 w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:border-sky-500">
+                </div>
+            </template>
         </div>
         <div class="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
             <button type="button" @click.stop="cancel()" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-800">Cancel</button>
@@ -130,6 +138,12 @@ function dbLensConfirm() {
         softLabel: '',
         choices: null,
         choiceValue: null,
+        inputName: null,
+        inputValue: '',
+        inputLabel: '',
+        inputType: 'text',
+        inputMin: null,
+        inputMax: null,
         isSoft() {
             return (this.softDeleteUrl && this.softDelete) || (this.softField && this.softFieldOn);
         },
@@ -149,9 +163,17 @@ function dbLensConfirm() {
             this.softLabel = opts.softLabel || '🪶 <strong>Soft delete</strong> instead — set <span class="mono">deleted_at = NOW()</span> (keeps the rows)';
             this.choices = (opts.choices && opts.choices.length) ? opts.choices : null;
             this.choiceValue = this.choices ? (opts.choiceDefault || this.choices[0].value) : null;
+            this.inputName = opts.inputName || null;
+            this.inputValue = opts.inputDefault ?? '';
+            this.inputLabel = opts.inputLabel || '';
+            this.inputType = opts.inputType || 'text';
+            this.inputMin = opts.inputMin ?? null;
+            this.inputMax = opts.inputMax ?? null;
             this.visible = true;
             if (this.typedConfirmation) {
                 this.$nextTick(() => this.$refs.typedInput?.focus());
+            } else if (this.inputName) {
+                this.$nextTick(() => this.$refs.promptInput?.focus());
             }
         },
         cancel() {
@@ -161,6 +183,7 @@ function dbLensConfirm() {
             this.softDeleteUrl = null;
             this.softField = null;
             this.choices = null;
+            this.inputName = null;
             // Notify ancestors (e.g. the bulk-form wrapper) that the user
             // backed out, so they can clear any "Loading…" overlay they set.
             window.dispatchEvent(new CustomEvent('dblens-confirm-cancelled'));
@@ -201,13 +224,15 @@ function dbLensConfirm() {
             const fn = this.pending;
             const choice = this.choiceValue;
             const soft = this.softField ? this.softFieldOn : undefined;
+            const input = this.inputName ? this.inputValue : undefined;
             this.visible = false;
             this.pending = null;
             this.typed = '';
             this.softDeleteUrl = null;
             this.softField = null;
             this.choices = null;
-            if (fn) fn({ choice, soft });
+            this.inputName = null;
+            if (fn) fn({ choice, soft, input });
         },
     }
 }
@@ -398,6 +423,7 @@ document.addEventListener('submit', function (e) {
         try { choices = JSON.parse(form.dataset.confirmChoices); } catch (_) { choices = null; }
     }
     const choiceName = form.dataset.confirmChoiceName || null;
+    const inputName = form.dataset.confirmInputName || null;
     window.dispatchEvent(new CustomEvent('open-confirm', { detail: {
         title: form.dataset.confirmTitle || 'Confirm',
         message: form.dataset.confirm,
@@ -408,18 +434,26 @@ document.addEventListener('submit', function (e) {
         softDeleteRowKey: form.dataset.confirmSoftDeleteRowKey || null,
         choices: choices,
         choiceDefault: form.dataset.confirmChoiceDefault || null,
+        inputName: inputName,
+        inputDefault: form.dataset.confirmInputDefault ?? '',
+        inputLabel: form.dataset.confirmInputLabel || '',
+        inputType: form.dataset.confirmInputType || 'text',
+        inputMin: form.dataset.confirmInputMin ?? null,
+        inputMax: form.dataset.confirmInputMax ?? null,
         onConfirm: (res) => {
-            if (choiceName && res && res.choice != null) {
-                let inp = form.querySelector('input[data-confirm-choice="1"]');
+            const inject = (name, value, flag) => {
+                let inp = form.querySelector('input[' + flag + '="1"]');
                 if (! inp) {
                     inp = document.createElement('input');
                     inp.type = 'hidden';
-                    inp.dataset.confirmChoice = '1';
+                    inp.setAttribute(flag, '1');
                     form.appendChild(inp);
                 }
-                inp.name = choiceName;
-                inp.value = res.choice;
-            }
+                inp.name = name;
+                inp.value = value;
+            };
+            if (choiceName && res && res.choice != null) inject(choiceName, res.choice, 'data-confirm-choice');
+            if (inputName && res && res.input != null) inject(inputName, res.input, 'data-confirm-input');
             form.dataset.confirmed = '1';
             form.submit();
         }

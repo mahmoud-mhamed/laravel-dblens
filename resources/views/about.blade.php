@@ -397,6 +397,7 @@
                 ['📜', 'Activity log', 'Records every write through spatie/laravel-activitylog — row CRUD, DDL, SQL, imports — with structured enrichment (request/device/performance/app/session/execution) matching the spatie-activitylog-browse shape.'],
                 ['🏢', 'Multi-tenancy', 'Auto-detects stancl/tenancy. Shows current tenant in the topbar and browses its DB transparently when routes run in tenant context.'],
                 ['📥', 'Import / export', 'Per-table CSV / JSON / SQL export, CSV / SQL import. Configurable size cap on SQL dumps.'],
+                ['🎲', 'Fake data generator', 'Insert N Faker rows from the browse screen — type/name-aware values, FK columns reuse existing referenced ids, integer & decimal ranges and enums respected. Plus make-model / make-factory / make-seeder commands.'],
                 ['🛡', 'Permissions', 'Read-only mode, per-action allow flags (truncate, drop, export, import), `viewDbLens` gate, login throttle.'],
                 ['🩺', 'Friendly errors', 'Misconfigured drivers (e.g. wrong port/driver) render a clean 503 page instead of a stack trace.'],
                 ['🎛', 'Drivers', 'MySQL, PostgreSQL, SQLite, and SQL Server drivers behind a shared interface with `castToText` + approximate-count abstractions.'],
@@ -434,6 +435,18 @@
             <div class="px-4 py-3">
                 <code class="text-sky-700 mono">php artisan dblens:make-migration {table}</code>
                 <div class="text-xs text-slate-500 mt-1">Generate a Laravel migration file from an existing table (columns + indexes + FKs).</div>
+            </div>
+            <div class="px-4 py-3">
+                <code class="text-sky-700 mono">php artisan dblens:make-model {table}</code>
+                <div class="text-xs text-slate-500 mt-1">Reverse-engineer an Eloquent model — <code class="mono">$fillable</code>, <code class="mono">$casts</code>, timestamps, SoftDeletes.</div>
+            </div>
+            <div class="px-4 py-3">
+                <code class="text-sky-700 mono">php artisan dblens:make-factory {table}</code>
+                <div class="text-xs text-slate-500 mt-1">Generate a model factory with type/name-aware Faker definitions per column.</div>
+            </div>
+            <div class="px-4 py-3">
+                <code class="text-sky-700 mono">php artisan dblens:make-seeder {table} --count=50</code>
+                <div class="text-xs text-slate-500 mt-1">Generate a seeder that creates rows via the model factory.</div>
             </div>
         </div>
     </div>

@@ -30,6 +30,16 @@ class TableEditor
         $this->schema()->flush($connection);
     }
 
+    /** Best-effort refresh of the engine's cached row-count / size stats. */
+    protected function refreshStats(string $connection, string $table): void
+    {
+        try {
+            $this->cm->driver($connection)->analyzeTable($table);
+        } catch (\Throwable $e) {
+            // Non-fatal: stats just stay stale until the engine refreshes them.
+        }
+    }
+
     protected function log(string $event, string $description, string $connection, string $table, array $props = []): void
     {
         $this->logger()->log($event, $description, array_merge([
@@ -92,11 +102,36 @@ class TableEditor
         ]);
     }
 
-    public function truncate(string $connection, string $table): void
+    /**
+     * Empty a table. $fkMode handles foreign-key references:
+     *   'none'           — TRUNCATE (errors if another table references it).
+     *   'disable_checks' — turn FK checks off then TRUNCATE (child rows kept,
+     *                      now orphaned); keeps TRUNCATE's auto-increment reset.
+     *   'cascade'        — delete referencing rows first, then empty this table.
+     *                      MySQL forbids TRUNCATE on a referenced table even
+     *                      with no child rows, so this falls back to DELETE.
+     *
+     * @return array{table:string, affected:int, related:array<string,int>, total:int}
+     */
+    public function truncate(string $connection, string $table, string $fkMode = 'none'): array
     {
         $this->assertWritable();
-        $this->cm->driver($connection)->truncateTable($table);
-        $this->log('schema_table_truncated', "Truncated {$table}", $connection, $table);
+
+        if ($fkMode === 'cascade') {
+            return $this->deleteAllRows($connection, $table, 'cascade');
+        }
+
+        $driver = $this->cm->driver($connection);
+        if ($fkMode === 'disable_checks') {
+            $driver->connection()->getSchemaBuilder()->withoutForeignKeyConstraints(fn () => $driver->truncateTable($table));
+        } else {
+            $driver->truncateTable($table);
+        }
+
+        $this->log('schema_table_truncated', "Truncated {$table}", $connection, $table, ['fk_mode' => $fkMode]);
+        $this->refreshStats($connection, $table);
+
+        return ['table' => $table, 'affected' => 0, 'related' => [], 'total' => 0];
     }
 
     /**
@@ -129,6 +164,7 @@ class TableEditor
             $this->log('row_all_deleted', "Deleted all rows ({$affected}) from {$table} + related", $connection, $table, [
                 'affected' => $affected, 'fk_mode' => $fkMode, 'related' => $counts,
             ]);
+            $this->refreshStats($connection, $table);
             return ['table' => $table, 'affected' => $affected, 'related' => $counts, 'total' => $affected + array_sum($counts)];
         }
 
@@ -137,6 +173,7 @@ class TableEditor
             $this->log('row_all_deleted', "Deleted all rows ({$affected}) from {$table} [FK checks off]", $connection, $table, [
                 'affected' => $affected, 'fk_mode' => $fkMode,
             ]);
+            $this->refreshStats($connection, $table);
             return ['table' => $table, 'affected' => $affected, 'related' => [], 'total' => $affected];
         }
 
@@ -144,6 +181,7 @@ class TableEditor
         $this->log('row_all_deleted', "Deleted all rows ({$affected}) from {$table}", $connection, $table, [
             'affected' => $affected, 'fk_mode' => 'none',
         ]);
+        $this->refreshStats($connection, $table);
         return ['table' => $table, 'affected' => $affected, 'related' => [], 'total' => $affected];
     }
 

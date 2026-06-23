@@ -99,6 +99,9 @@ Set `DBLENS_DEFAULT_CONNECTION=tenant` (or use the `connections.default` config)
 - `php artisan dblens:install` — publish config, verify env, list DB connections (add `--views` for full template control)
 - `php artisan dblens:publish-config` — publish only the config file to `config/dblens.php` (add `--force` to overwrite an existing one)
 - `php artisan dblens:make-migration {table}` — generate a Laravel migration from an existing table (columns + indexes + FKs)
+- `php artisan dblens:make-model {table}` — generate an Eloquent model (`$fillable`, `$casts`, timestamps, SoftDeletes)
+- `php artisan dblens:make-factory {table}` — generate a model factory with Faker definitions inferred per column
+- `php artisan dblens:make-seeder {table} --count=50` — generate a seeder that creates rows via the model factory
 
 ### Security
 - 🚫 Disabled in production by default (`enable_production = false`)

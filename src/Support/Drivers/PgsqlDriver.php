@@ -288,6 +288,11 @@ class PgsqlDriver implements DriverInterface
         $this->conn->statement("TRUNCATE TABLE {$this->quoteIdentifier($table)}");
     }
 
+    public function analyzeTable(string $table): void
+    {
+        $this->conn->statement("ANALYZE {$this->quoteIdentifier($table)}");
+    }
+
     public function dropTable(string $table): void
     {
         $this->conn->statement("DROP TABLE {$this->quoteIdentifier($table)}");

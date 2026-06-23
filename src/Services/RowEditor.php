@@ -3,6 +3,7 @@
 namespace MahmoudMhamed\DbLens\Services;
 
 use Illuminate\Support\Facades\Hash;
+use MahmoudMhamed\DbLens\Support\ColumnFaker;
 use MahmoudMhamed\DbLens\Support\Concerns\AssertsWritable;
 use MahmoudMhamed\DbLens\Support\Sql\PkClause;
 use RuntimeException;
@@ -51,6 +52,16 @@ class RowEditor
     protected function logger(): ActivityLogger
     {
         return $this->logger ??= app(ActivityLogger::class);
+    }
+
+    /** Best-effort refresh of the engine's cached row-count / size stats. */
+    protected function refreshStats(string $connection, string $table): void
+    {
+        try {
+            $this->cm->driver($connection)->analyzeTable($table);
+        } catch (\Throwable $e) {
+            // Non-fatal.
+        }
     }
 
     /**
@@ -335,6 +346,7 @@ class RowEditor
             'pk_sample' => array_slice($pkSets, 0, 10),
         ]);
 
+        $this->refreshStats($connection, $table);
         return $deleted;
     }
 
@@ -371,6 +383,7 @@ class RowEditor
             'pk_sample' => array_slice($pkSets, 0, 10),
         ]);
 
+        $this->refreshStats($connection, $table);
         return $affected;
     }
 
@@ -441,5 +454,105 @@ class RowEditor
         ]);
 
         return $affected;
+    }
+
+    /**
+     * Insert $count rows of Faker-generated data. Auto-increment keys are left
+     * to the DB; foreign-key columns are filled with a random existing value
+     * from the referenced table (or NULL when nullable). Batched in one
+     * transaction. Requires fakerphp/faker.
+     */
+    public function generateFake(string $connection, string $table, int $count): int
+    {
+        $this->assertWritable();
+        $count = max(1, min($count, 1000));
+
+        if (! class_exists(\Faker\Factory::class)) {
+            throw new RuntimeException('Faker is not installed. Run: composer require fakerphp/faker --dev');
+        }
+        $faker = \Faker\Factory::create();
+
+        $driver = $this->cm->driver($connection);
+        $conn = $driver->connection();
+        $columns = $this->schema->columns($connection, $table);
+        $pk = $this->schema->primaryKey($connection, $table);
+        $fkByCol = $this->schema->foreignKeyByColumn($connection, $table);
+
+        // Pre-fetch candidate values for each FK column once.
+        $fkCandidates = [];
+        foreach ($fkByCol as $col => $fk) {
+            $fkCandidates[$col] = $conn->table($fk['foreign_table'])->limit(500)->pluck($fk['foreign_column'])->all();
+        }
+
+        // Columns the DB assigns itself.
+        $skip = [];
+        foreach ($columns as $c) {
+            $name = $c['name'];
+            $isAutoInc = stripos((string) ($c['extra'] ?? ''), 'auto_increment') !== false;
+            $isIntPk = count($pk) === 1 && in_array($name, $pk, true) && preg_match('/int/i', (string) $c['type']);
+            if ($isAutoInc || $isIntPk) $skip[$name] = true;
+        }
+
+        $rows = [];
+        for ($i = 0; $i < $count; $i++) {
+            $rows[] = $this->fakeRow($faker, $columns, $skip, $fkByCol, $fkCandidates);
+        }
+
+        $conn->beginTransaction();
+        try {
+            foreach (array_chunk($rows, 200) as $chunk) {
+                $conn->table($table)->insert($chunk);
+            }
+            $conn->commit();
+        } catch (\Throwable $e) {
+            $conn->rollBack();
+            throw $e;
+        }
+
+        $this->logger()->log('row_generated', "Generated {$count} fake row(s) in {$table}", [
+            'connection' => $connection,
+            'table' => $table,
+            'count' => $count,
+        ]);
+
+        $this->refreshStats($connection, $table);
+        return $count;
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>>  $columns
+     * @param  array<string,true>  $skip
+     */
+    protected function fakeRow(\Faker\Generator $faker, array $columns, array $skip, array $fkByCol, array $fkCandidates): array
+    {
+        $now = now()->format('Y-m-d H:i:s');
+        $row = [];
+        foreach ($columns as $c) {
+            $name = $c['name'];
+            if (isset($skip[$name]) || $name === 'deleted_at') continue;
+            if (in_array($name, ['created_at', 'updated_at'], true)) {
+                $row[$name] = $now;
+                continue;
+            }
+            if (isset($fkByCol[$name])) {
+                $cands = $fkCandidates[$name] ?? [];
+                if (! empty($cands)) {
+                    $row[$name] = $cands[array_rand($cands)];
+                } elseif (! empty($c['nullable'])) {
+                    $row[$name] = null;
+                } else {
+                    throw new RuntimeException("Cannot generate rows: referenced table for [{$name}] is empty.");
+                }
+                continue;
+            }
+            $val = ColumnFaker::value($faker, $c);
+            // Respect a declared string length, e.g. varchar(20).
+            if (is_string($val) && preg_match('/\((\d+)\)/', (string) $c['type'], $m)) {
+                $val = mb_substr($val, 0, (int) $m[1]);
+            }
+            $row[$name] = $val;
+        }
+
+        return $row;
     }
 }

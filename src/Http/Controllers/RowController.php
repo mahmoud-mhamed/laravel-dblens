@@ -258,6 +258,27 @@ class RowController extends Controller
             ->with('dblens.success', 'Row duplicated.');
     }
 
+    public function generate(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, RowEditor $editor)
+    {
+        $this->assertWritable();
+        abort_unless(config('dblens.allow_generate', true), 403, 'Row generation is disabled.');
+        $cm->assertAllowed($connection);
+        abort_unless($schema->tableExists($connection, $table), 404);
+
+        $count = (int) $request->input('count', 10);
+        if ($count < 1 || $count > 1000) $count = 10;
+
+        try {
+            $n = $editor->generateFake($connection, $table, $count);
+        } catch (\Throwable $e) {
+            return back()->with('dblens.error', $e->getMessage());
+        }
+
+        return redirect()
+            ->route('dblens.table.browse', array_merge($request->query(), ['connection' => $connection, 'table' => $table]))
+            ->with('dblens.success', "Generated {$n} fake row(s).");
+    }
+
     /** Return a single row as a pretty JSON object and an INSERT statement (for copy-to-clipboard). */
     public function snippet(string $connection, string $table, string $rowKey, ConnectionManager $cm, SchemaInspector $schema)
     {

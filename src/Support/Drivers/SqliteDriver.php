@@ -187,6 +187,11 @@ class SqliteDriver implements DriverInterface
         $this->conn->statement("DELETE FROM {$this->quoteIdentifier($table)}");
     }
 
+    public function analyzeTable(string $table): void
+    {
+        $this->conn->statement("ANALYZE {$this->quoteIdentifier($table)}");
+    }
+
     public function dropTable(string $table): void
     {
         $this->conn->statement("DROP TABLE {$this->quoteIdentifier($table)}");

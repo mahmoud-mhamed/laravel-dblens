@@ -273,6 +273,12 @@ class MySqlDriver implements DriverInterface
         $this->conn->statement("TRUNCATE TABLE {$this->quoteIdentifier($table)}");
     }
 
+    public function analyzeTable(string $table): void
+    {
+        // Refreshes information_schema.TABLES stats (cached per information_schema_stats_expiry).
+        $this->conn->statement("ANALYZE TABLE {$this->quoteIdentifier($table)}");
+    }
+
     public function dropTable(string $table): void
     {
         $this->conn->statement("DROP TABLE {$this->quoteIdentifier($table)}");

@@ -6,7 +6,10 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensActivityLogInstallCommand;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensInstallCommand;
+use MahmoudMhamed\DbLens\Console\Commands\DbLensMakeFactoryCommand;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensMakeMigrationCommand;
+use MahmoudMhamed\DbLens\Console\Commands\DbLensMakeModelCommand;
+use MahmoudMhamed\DbLens\Console\Commands\DbLensMakeSeederCommand;
 use MahmoudMhamed\DbLens\Console\Commands\DbLensPublishConfigCommand;
 use MahmoudMhamed\DbLens\Http\Middleware\AuthorizeDbLens;
 use MahmoudMhamed\DbLens\Http\Middleware\DbLensThrottle;
@@ -75,6 +78,9 @@ class DbLensServiceProvider extends ServiceProvider
                 DbLensInstallCommand::class,
                 DbLensPublishConfigCommand::class,
                 DbLensMakeMigrationCommand::class,
+                DbLensMakeModelCommand::class,
+                DbLensMakeFactoryCommand::class,
+                DbLensMakeSeederCommand::class,
                 DbLensActivityLogInstallCommand::class,
             ]);
         }

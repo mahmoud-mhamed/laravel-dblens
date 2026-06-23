@@ -73,6 +73,12 @@ interface DriverInterface
 
     public function truncateTable(string $table): void;
 
+    /**
+     * Refresh the engine's cached table statistics (row count / size) so the
+     * overview reflects reality after a bulk write. Best-effort.
+     */
+    public function analyzeTable(string $table): void;
+
     public function dropTable(string $table): void;
 
     public function renameTable(string $from, string $to): void;

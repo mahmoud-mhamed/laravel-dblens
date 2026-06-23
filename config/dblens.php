@@ -43,6 +43,8 @@ return [
     'allow_drop_table' => env('DBLENS_ALLOW_DROP_TABLE', false),
     'allow_export' => env('DBLENS_ALLOW_EXPORT', true),
     'allow_import' => env('DBLENS_ALLOW_IMPORT', true),
+    // Generate fake rows with Faker from the browse screen (requires fakerphp/faker).
+    'allow_generate' => env('DBLENS_ALLOW_GENERATE', true),
 
     /*
     |--------------------------------------------------------------------------

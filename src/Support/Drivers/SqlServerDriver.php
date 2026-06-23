@@ -307,6 +307,11 @@ class SqlServerDriver implements DriverInterface
         $this->conn->statement("TRUNCATE TABLE {$this->qualified($table)}");
     }
 
+    public function analyzeTable(string $table): void
+    {
+        $this->conn->statement("UPDATE STATISTICS {$this->qualified($table)}");
+    }
+
     public function dropTable(string $table): void
     {
         $this->conn->statement("DROP TABLE {$this->qualified($table)}");

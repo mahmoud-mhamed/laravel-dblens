@@ -143,6 +143,13 @@ class SchemaController extends Controller
 
     // ─── table-level ───────────────────────────────────────────────────────
 
+    /** Read & whitelist the foreign-key handling mode from the request. */
+    protected function fkMode(Request $request): string
+    {
+        $mode = (string) $request->input('fk_mode', 'none');
+        return in_array($mode, ['none', 'disable_checks', 'cascade'], true) ? $mode : 'none';
+    }
+
     public function truncate(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
     {
         $this->assertWritable();
@@ -150,10 +157,18 @@ class SchemaController extends Controller
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
         $this->confirmed($request);
+        $fkMode = $this->fkMode($request);
         try {
-            $editor->truncate($connection, $table);
+            $result = $editor->truncate($connection, $table, $fkMode);
         } catch (\Throwable $e) { return $this->backWithError($e); }
-        return $this->backToStructure($connection, $table, "Table [{$table}] truncated.");
+
+        if ($fkMode === 'cascade') {
+            $message = "Emptied [{$table}] ({$result['affected']} row(s))"
+                . (empty($result['related']) ? '.' : ' plus ' . array_sum($result['related']) . ' related row(s) across ' . count($result['related']) . ' table(s).');
+        } else {
+            $message = "Table [{$table}] truncated.";
+        }
+        return $this->backToStructure($connection, $table, $message);
     }
 
     public function deleteAllRows(string $connection, string $table, Request $request, ConnectionManager $cm, SchemaInspector $schema, TableEditor $editor)
@@ -163,12 +178,8 @@ class SchemaController extends Controller
         $cm->assertAllowed($connection);
         abort_unless($schema->tableExists($connection, $table), 404);
         $this->confirmed($request);
-        $fkMode = (string) $request->input('fk_mode', 'none');
-        if (! in_array($fkMode, ['none', 'disable_checks', 'cascade'], true)) {
-            $fkMode = 'none';
-        }
         try {
-            $result = $editor->deleteAllRows($connection, $table, $fkMode);
+            $result = $editor->deleteAllRows($connection, $table, $this->fkMode($request));
         } catch (\Throwable $e) { return $this->backWithError($e); }
 
         $message = "Deleted {$result['affected']} row(s) from [{$table}].";

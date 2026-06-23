@@ -88,6 +88,7 @@ Route::get('/{connection}/t/{table}/create', [RowController::class, 'create'])->
 Route::post('/{connection}/t/{table}/create', [RowController::class, 'store'])->name('row.store');
 Route::post('/{connection}/t/{table}/bulk-delete', [RowController::class, 'bulkDestroy'])->name('row.bulk-destroy');
 Route::post('/{connection}/t/{table}/bulk-update', [RowController::class, 'bulkUpdate'])->name('row.bulk-update');
+Route::post('/{connection}/t/{table}/generate', [RowController::class, 'generate'])->name('row.generate');
 Route::patch('/{connection}/t/{table}/cell', [RowController::class, 'updateCell'])->name('row.cell.update');
 Route::get('/{connection}/t/{table}/fk-options', [RowController::class, 'fkOptions'])->name('row.fk.options');
 

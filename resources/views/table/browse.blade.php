@@ -53,13 +53,39 @@
     @unless ($readOnly ?? config('dblens.read_only'))
         <a href="{{ route('dblens.row.create', ['connection' => $connection, 'table' => $table]) }}"
            class="px-2 py-1 rounded text-emerald-700 hover:bg-emerald-50 text-xs font-semibold">+ Insert</a>
+        @if (config('dblens.allow_generate', true))
+            <form method="POST" action="{{ route('dblens.row.generate', ['connection' => $connection, 'table' => $table]) }}{{ $qs }}"
+                  class="inline"
+                  data-confirm-title="Generate fake rows"
+                  data-confirm="Insert Faker-generated rows into [{{ $table }}]. Foreign keys reuse existing referenced values."
+                  data-confirm-text="Generate" data-confirm-danger="false"
+                  data-confirm-input-name="count"
+                  data-confirm-input-type="number"
+                  data-confirm-input-default="10"
+                  data-confirm-input-min="1"
+                  data-confirm-input-max="1000"
+                  data-confirm-input-label="How many rows to insert? (1-1000)">
+                @csrf
+                <button type="submit" class="px-2 py-1 rounded text-violet-700 hover:bg-violet-50 text-xs font-semibold" title="Generate fake rows with Faker">🎲 Generate</button>
+            </form>
+        @endif
         @if (config('dblens.allow_truncate', true))
+            @php
+                $truncateChoices = [
+                    ['value' => 'none',           'label' => 'Plain truncate',     'desc' => 'Fails if another table references this one.'],
+                    ['value' => 'disable_checks', 'label' => 'Disable FK checks',  'desc' => 'Force truncate; child rows are kept (orphaned).'],
+                    ['value' => 'cascade',        'label' => 'Delete related rows','desc' => 'Delete child rows first, then empty this table.'],
+                ];
+            @endphp
             <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}{{ $qs }}"
                   class="inline"
                   data-confirm-title="Truncate table"
-                  data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $table }}]. This cannot be undone."
+                  data-confirm="Remove ALL rows from [{{ $table }}]. The table structure is kept. Choose how foreign-key references are handled below."
                   data-confirm-text="Truncate"
-                  data-confirm-type="{{ $table }}">
+                  data-confirm-type="{{ $table }}"
+                  data-confirm-choice-name="fk_mode"
+                  data-confirm-choice-default="none"
+                  data-confirm-choices="{{ json_encode($truncateChoices) }}">
                 @csrf
                 <input type="hidden" name="confirm" value="1">
                 <button type="submit" class="px-2 py-1 rounded text-amber-700 hover:bg-amber-50 text-xs font-semibold" title="Remove ALL rows (keeps the table structure)">⌫ Truncate</button>

@@ -18,11 +18,21 @@
         </details>
 
         @if (config('dblens.allow_truncate', true))
+            @php
+                $truncateChoices = [
+                    ['value' => 'none',           'label' => 'Plain truncate',     'desc' => 'Fails if another table references this one.'],
+                    ['value' => 'disable_checks', 'label' => 'Disable FK checks',  'desc' => 'Force truncate; child rows are kept (orphaned).'],
+                    ['value' => 'cascade',        'label' => 'Delete related rows','desc' => 'Delete child rows first, then empty this table.'],
+                ];
+            @endphp
             <form method="POST" action="{{ route('dblens.table.truncate', ['connection' => $connection, 'table' => $table]) }}"
                   data-confirm-title="Truncate table"
-                  data-confirm="TRUNCATE TABLE will remove ALL rows from [{{ $table }}]. This cannot be undone."
+                  data-confirm="Remove ALL rows from [{{ $table }}]. The table structure is kept. Choose how foreign-key references are handled below."
                   data-confirm-text="Truncate"
-                  data-confirm-type="{{ $table }}">
+                  data-confirm-type="{{ $table }}"
+                  data-confirm-choice-name="fk_mode"
+                  data-confirm-choice-default="none"
+                  data-confirm-choices="{{ json_encode($truncateChoices) }}">
                 @csrf
                 <input type="hidden" name="confirm" value="1">
                 <button class="px-3 py-1 bg-amber-500 text-white rounded text-xs">Truncate</button>
